@@ -1,15 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Shield,
   Volume2,
-  Lock,
   Trash2,
   CheckCircle2,
   Cpu,
+  Key,
+  Eye,
+  EyeOff,
+  Zap,
+  Save,
+  Sparkles,
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
-import { SensitiveDataRedactor } from '../../../infrastructure/security/SensitiveDataRedactor';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -17,81 +20,512 @@ export const SettingsView: React.FC = () => {
     setActiveAIVoice,
     activeAIProvider,
     setActiveAIProvider,
-    user,
   } = useTamSpeakStore();
 
-  const [provider, setProvider] = useState<'gemini' | 'groq' | 'openrouter'>('gemini');
-  const [newKey, setNewKey] = useState('');
-  const [keyAlias, setKeyAlias] = useState('');
-  const [sessionPassword, setSessionPassword] = useState('user-secret-2026');
-  const [configuredKeys, setConfiguredKeys] = useState<
-    Array<{ provider: string; alias: string; masked: string }>
-  >([
-    {
-      provider: 'gemini',
-      alias: 'Personal Gemini Flash',
-      masked: 'AIza...[REDACTED]...89Z',
-    },
-  ]);
+  // 1. BYOK (Personal API Keys) State
+  const [geminiKey, setGeminiKey] = useState('');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [geminiTestStatus, setGeminiTestStatus] = useState<{
+    state: 'idle' | 'testing' | 'valid' | 'invalid';
+    message?: string;
+  }>({ state: 'idle' });
+
+  const [groqKey, setGroqKey] = useState('');
+  const [showGroqKey, setShowGroqKey] = useState(false);
+  const [groqTestStatus, setGroqTestStatus] = useState<{
+    state: 'idle' | 'testing' | 'valid' | 'invalid';
+    message?: string;
+  }>({ state: 'idle' });
+
+  // 2. TTS Voice List & Mapping State
+  const [availableSystemVoices, setAvailableSystemVoices] = useState<
+    Array<{ id: string; name: string; lang: string }>
+  >([]);
+
+  // 3. Vault & General Settings State
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const handleAddKey = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newKey.trim()) return;
+  // Load existing BYOK keys from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const savedGemini = window.localStorage.getItem('tamspeak_byok_gemini');
+      if (savedGemini) {
+        setGeminiKey(savedGemini);
+        container.aiGateway.setPersonalKey?.('gemini', savedGemini);
+      }
 
+      const savedGroq = window.localStorage.getItem('tamspeak_byok_groq');
+      if (savedGroq) {
+        setGroqKey(savedGroq);
+        container.aiGateway.setPersonalKey?.('groq', savedGroq);
+      }
+    }
+  }, []);
+
+  // Subscribe to voices loaded event
+  useEffect(() => {
+    const updateVoices = () => {
+      const voices = container.speechTTSEngine.getVoices();
+      setAvailableSystemVoices(
+        voices.map((v) => ({ id: v.id, name: v.name, lang: v.lang }))
+      );
+    };
+
+    updateVoices();
+    const unsubscribe = container.speechTTSEngine.subscribeVoicesLoaded(updateVoices);
+    return () => unsubscribe();
+  }, []);
+
+  // --- BYOK Handlers ---
+  const handleTestGemini = async () => {
+    if (!geminiKey.trim()) {
+      setGeminiTestStatus({ state: 'invalid', message: 'Vui lòng nhập API Key trước khi kiểm tra.' });
+      return;
+    }
+
+    setGeminiTestStatus({ state: 'testing', message: 'Đang gửi ping kiểm tra đến Google Gemini API...' });
     try {
-      // 1. Encrypt key with AES-GCM 256-bit + PBKDF2
-      const encrypted = await container.cryptoService.encryptApiKey(newKey, sessionPassword);
-
-      // 2. Add to Gateway Key Pool for rotation
-      container.aiGateway.setKeyPool(provider, [newKey]);
-
-      const masked = SensitiveDataRedactor.redactString(newKey);
-      setConfiguredKeys([
-        ...configuredKeys,
-        {
-          provider,
-          alias: keyAlias || `${provider.toUpperCase()} Key`,
-          masked,
-        },
-      ]);
-
-      setNewKey('');
-      setKeyAlias('');
-      setStatusMessage(`Key encrypted (${encrypted.getCiphertext().substring(0, 10)}...) with AES-GCM 256-bit and loaded into in-memory vault.`);
-      setTimeout(() => setStatusMessage(null), 3500);
-    } catch (err) {
-      alert((err as Error).message);
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey.trim()}`
+      );
+      if (response.ok) {
+        setGeminiTestStatus({
+          state: 'valid',
+          message: '🟢 Valid API Key! Sẵn sàng sử dụng Gemini 2.5 Flash không giới hạn.',
+        });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setGeminiTestStatus({
+          state: 'invalid',
+          message: `🔴 Invalid Key (${response.status}): ${
+            errorData?.error?.message || 'API Key không hợp lệ hoặc chưa kích hoạt Generative Language API.'
+          }`,
+        });
+      }
+    } catch (err: any) {
+      setGeminiTestStatus({
+        state: 'invalid',
+        message: `🔴 Lỗi kết nối mạng: ${err?.message || 'Không thể ping đến Gemini API.'}`,
+      });
     }
   };
 
-  const handleTestVoice = (voiceName: string) => {
-    setActiveAIVoice(voiceName);
-    container.speechTTSEngine.speak(
-      `Hello ${user?.displayName || 'there'}! This is your ${voiceName} speaking coach on TamSpeak.`
-    );
+  const handleSaveGemini = () => {
+    if (!geminiKey.trim()) return;
+    window.localStorage.setItem('tamspeak_byok_gemini', geminiKey.trim());
+    container.aiGateway.setPersonalKey?.('gemini', geminiKey.trim());
+    setStatusMessage('Đã lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
+
+  const handleClearGemini = () => {
+    window.localStorage.removeItem('tamspeak_byok_gemini');
+    container.aiGateway.setPersonalKey?.('gemini', null);
+    setGeminiKey('');
+    setGeminiTestStatus({ state: 'idle' });
+    setStatusMessage('Đã xóa Gemini Key cá nhân. Hệ thống quay về hạn mức mặc định.');
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
+
+  const handleTestGroq = async () => {
+    if (!groqKey.trim()) {
+      setGroqTestStatus({ state: 'invalid', message: 'Vui lòng nhập Groq API Key trước khi kiểm tra.' });
+      return;
+    }
+
+    setGroqTestStatus({ state: 'testing', message: 'Đang gửi ping kiểm tra đến Groq Cloud API...' });
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { Authorization: `Bearer ${groqKey.trim()}` },
+      });
+      if (response.ok) {
+        setGroqTestStatus({
+          state: 'valid',
+          message: '🟢 Valid API Key! Sẵn sàng sử dụng Groq Llama 3.3 70B siêu tốc độ.',
+        });
+      } else {
+        setGroqTestStatus({
+          state: 'invalid',
+          message: `🔴 Invalid Key (${response.status}): Key Groq không chính xác hoặc đã hết hạn.`,
+        });
+      }
+    } catch (err: any) {
+      setGroqTestStatus({
+        state: 'invalid',
+        message: `🔴 Lỗi kết nối: ${err?.message || 'Không thể ping đến Groq API.'}`,
+      });
+    }
+  };
+
+  const handleSaveGroq = () => {
+    if (!groqKey.trim()) return;
+    window.localStorage.setItem('tamspeak_byok_groq', groqKey.trim());
+    container.aiGateway.setPersonalKey?.('groq', groqKey.trim());
+    setStatusMessage('Đã lưu Groq API Key cá nhân vào Local Vault của bạn!');
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
+
+  const handleClearGroq = () => {
+    window.localStorage.removeItem('tamspeak_byok_groq');
+    container.aiGateway.setPersonalKey?.('groq', null);
+    setGroqKey('');
+    setGroqTestStatus({ state: 'idle' });
+    setStatusMessage('Đã xóa Groq Key cá nhân. Hệ thống quay về hạn mức mặc định.');
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
+
+  // --- Voice Handlers ---
+  const handlePreviewVoice = (persona: string) => {
+    container.speechTTSEngine.previewVoice(persona);
+  };
+
+  const handleSelectVoicePersona = (persona: string) => {
+    setActiveAIVoice(persona);
+    container.speechTTSEngine.setActivePersona(persona);
+    container.speechTTSEngine.previewVoice(persona);
+  };
+
+  const handleVoiceOverrideChange = (persona: string, voiceName: string) => {
+    container.speechTTSEngine.setManualVoiceOverride(persona, voiceName);
+    setStatusMessage(`Đã gắn giọng "${voiceName}" cho persona ${persona}`);
+    setTimeout(() => setStatusMessage(null), 3000);
   };
 
   return (
     <div className="flex-1 p-6 md:p-8 overflow-y-auto bg-slate-50 select-none">
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-            AI & Cryptographic Voice Settings
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+            <span>AI & Voice Configuration</span>
+            <span className="text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
+              BYOK & Smart TTS
+            </span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Manage your personal zero-trust encrypted API keys, multi-key rotation pool, and native TTS voices.
+            Cấu hình API Key cá nhân (Bring Your Own Key) và tinh chỉnh giọng đọc đa ngữ điệu.
           </p>
         </div>
 
         {statusMessage && (
-          <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200 text-teal-800 text-xs font-semibold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-teal-600" />
+          <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
             <span>{statusMessage}</span>
           </div>
         )}
 
-        {/* 0. Primary AI Provider Strategy Card */}
+        {/* ======================================================== */}
+        {/* 1. PERSONAL API KEY CONFIGURATION (BYOK) - TOP PRIORITY  */}
+        {/* ======================================================== */}
+        <div className="p-6 rounded-3xl border-2 border-teal-200/90 bg-white shadow-md space-y-5">
+          <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs">
+                <Key className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <span>🔑 Personal API Key Configuration (BYOK)</span>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 font-extrabold px-2 py-0.5 rounded-full">
+                    Khuyên Dùng
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Nhập API Key cá nhân của bạn để sử dụng không giới hạn mà không phụ thuộc vào hạn mức (Quota) chung của hệ thống.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* A. Google Gemini API Key */}
+          <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-teal-600" />
+                <label className="text-xs font-bold text-slate-800">
+                  Google Gemini API Key <span className="text-[10px] text-teal-600 font-semibold">(Gemini 2.5 Flash • Khuyên Dùng)</span>
+                </label>
+              </div>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-teal-700 font-bold hover:underline"
+              >
+                Lấy Key miễn phí tại Google AI Studio ↗
+              </a>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showGeminiKey ? 'text' : 'password'}
+                value={geminiKey}
+                onChange={(e) => {
+                  setGeminiKey(e.target.value);
+                  setGeminiTestStatus({ state: 'idle' });
+                }}
+                placeholder="AIzaSy..."
+                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+              />
+              <button
+                type="button"
+                onClick={() => setShowGeminiKey(!showGeminiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Test Status Feedback */}
+            {geminiTestStatus.state !== 'idle' && (
+              <div
+                className={`text-[11px] font-semibold p-2 rounded-lg flex items-center gap-1.5 ${
+                  geminiTestStatus.state === 'valid'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : geminiTestStatus.state === 'invalid'
+                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                    : 'bg-teal-50 text-teal-800 border border-teal-200'
+                }`}
+              >
+                {geminiTestStatus.state === 'testing' && <Zap className="w-3.5 h-3.5 animate-spin" />}
+                <span>{geminiTestStatus.message}</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleTestGemini}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors shadow-2xs"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span>⚡ Test & Verify Key</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveGemini}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors shadow-2xs"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>💾 Save to Local Vault</span>
+              </button>
+
+              {geminiKey && (
+                <button
+                  type="button"
+                  onClick={handleClearGemini}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa Key</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* B. Groq API Key */}
+          <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-purple-600" />
+                <label className="text-xs font-bold text-slate-800">
+                  Groq Cloud API Key <span className="text-[10px] text-purple-600 font-semibold">(Llama 3.3 70B • Tốc độ siêu tốc & Fallback)</span>
+                </label>
+              </div>
+              <a
+                href="https://console.groq.com/keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-purple-700 font-bold hover:underline"
+              >
+                Lấy Key tại Groq Console ↗
+              </a>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showGroqKey ? 'text' : 'password'}
+                value={groqKey}
+                onChange={(e) => {
+                  setGroqKey(e.target.value);
+                  setGroqTestStatus({ state: 'idle' });
+                }}
+                placeholder="gsk_..."
+                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+              />
+              <button
+                type="button"
+                onClick={() => setShowGroqKey(!showGroqKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Test Status Feedback */}
+            {groqTestStatus.state !== 'idle' && (
+              <div
+                className={`text-[11px] font-semibold p-2 rounded-lg flex items-center gap-1.5 ${
+                  groqTestStatus.state === 'valid'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : groqTestStatus.state === 'invalid'
+                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                    : 'bg-purple-50 text-purple-800 border border-purple-200'
+                }`}
+              >
+                {groqTestStatus.state === 'testing' && <Zap className="w-3.5 h-3.5 animate-spin" />}
+                <span>{groqTestStatus.message}</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleTestGroq}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors shadow-2xs"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span>⚡ Test & Verify Key</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveGroq}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-colors shadow-2xs"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>💾 Save to Local Vault</span>
+              </button>
+
+              {groqKey && (
+                <button
+                  type="button"
+                  onClick={handleClearGroq}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa Key</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* 2. MULTI-VOICE & ACCENT SYNTHESIS WITH SMART MAPPER      */}
+        {/* ======================================================== */}
+        <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                <Volume2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Multi-Voice & Accent Synthesis</h3>
+                <p className="text-[11px] text-slate-500">
+                  Tự động ánh xạ thông minh (Smart Voice Mapper) sang giọng đọc thực tế trên hệ điều hành của bạn.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            {[
+              {
+                persona: 'Aoede (US)',
+                displayName: 'Aoede (US)',
+                accent: 'American English Accent',
+                badge: 'Standard',
+                pitchDesc: 'Pitch: 1.05 • Rate: 1.0',
+              },
+              {
+                persona: 'Charon (UK)',
+                displayName: 'Charon (UK)',
+                accent: 'British Received Pronunciation',
+                badge: 'BBC / IELTS',
+                pitchDesc: 'Pitch: 0.90 • Rate: 0.98',
+              },
+              {
+                persona: 'Kore (AU)',
+                displayName: 'Kore (AU)',
+                accent: 'Australian English Accent',
+                badge: 'Natural AU',
+                pitchDesc: 'Pitch: 1.10 • Rate: 1.02',
+              },
+            ].map((v) => {
+              const personaConfig = container.speechTTSEngine.getPersonaConfig(v.persona);
+              const isActive = activeAIVoice === v.persona;
+
+              return (
+                <div
+                  key={v.persona}
+                  onClick={() => handleSelectVoicePersona(v.persona)}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer space-y-3 ${
+                    isActive
+                      ? 'border-teal-500 bg-teal-50/60 shadow-xs ring-2 ring-teal-500/20'
+                      : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-slate-900">{v.displayName}</span>
+                      <span className="text-[9px] bg-white border text-teal-800 font-bold px-2 py-0.5 rounded-full">
+                        {v.badge}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">{v.accent}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5 font-mono">{v.pitchDesc}</p>
+
+                    {/* Mapped System Voice Tag */}
+                    <div className="mt-2.5 p-2 rounded-xl bg-white border border-slate-200 text-[10px]">
+                      <span className="font-bold text-slate-500 block mb-0.5">Mapped to System Voice:</span>
+                      <span className="font-semibold text-teal-800 truncate block">
+                        {personaConfig.mappedVoiceName}
+                      </span>
+                    </div>
+
+                    {/* Manual OS Voice Dropdown Override */}
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                      <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                        Override with OS Voice:
+                      </label>
+                      <select
+                        value={personaConfig.mappedVoiceName}
+                        onChange={(e) => handleVoiceOverrideChange(v.persona, e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-1 text-[10px] text-slate-700 focus:ring-1 focus:ring-teal-500"
+                      >
+                        {availableSystemVoices.map((voice) => (
+                          <option key={voice.id} value={voice.name}>
+                            {voice.name} ({voice.lang})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Preview Voice Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePreviewVoice(v.persona);
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-white border border-teal-200 hover:bg-teal-100/50 text-teal-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <Volume2 className="w-3.5 h-3.5 text-teal-600" />
+                    <span>🔊 Preview Voice</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* 3. ACTIVE PROVIDER STRATEGY                             */}
+        {/* ======================================================== */}
         <div className="p-5 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-3">
           <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
             <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
@@ -100,7 +534,7 @@ export const SettingsView: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900">Active AI Provider Strategy</h3>
               <p className="text-[11px] text-slate-500">
-                Resilient Gateway automatically falls back across providers if rate limits or circuit breaker triggers.
+                Resilient Gateway ưu tiên Key cá nhân của bạn, sau đó tự động fallback khi gặp sự cố mạng hoặc quota.
               </p>
             </div>
           </div>
@@ -118,164 +552,6 @@ export const SettingsView: React.FC = () => {
               >
                 {p}
               </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 1. Cryptographic Key Vault Card */}
-        <div className="p-5 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-                <Shield className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Cryptographic Key Vault</h3>
-                <span className="text-[11px] text-teal-600 font-medium">
-                  AES-GCM 256-bit + PBKDF2 • In-Memory RAM Only
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Key List */}
-          <div className="space-y-2">
-            {configuredKeys.map((k, idx) => (
-              <div
-                key={idx}
-                className="flex items-center justify-between p-3 rounded-2xl border border-slate-200 bg-slate-50 text-xs"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-800">{k.alias}</span>
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.2 rounded-full bg-white border text-teal-700">
-                      {k.provider}
-                    </span>
-                  </div>
-                  <span className="text-slate-400 font-mono text-[11px]">{k.masked}</span>
-                </div>
-                <button
-                  onClick={() => setConfiguredKeys(configuredKeys.filter((_, i) => i !== idx))}
-                  className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Add Key Form */}
-          <form onSubmit={handleAddKey} className="space-y-3 pt-2 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Provider</label>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as 'gemini' | 'groq' | 'openrouter')}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-medium"
-                >
-                  <option value="gemini">Google Gemini (2.5 Pro / Flash)</option>
-                  <option value="groq">Groq Cloud (Llama 3.3 70B)</option>
-                  <option value="openrouter">OpenRouter (:free tier)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Key Alias</label>
-                <input
-                  type="text"
-                  value={keyAlias}
-                  onChange={(e) => setKeyAlias(e.target.value)}
-                  placeholder="e.g. My Primary Gemini"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  API Key (Never stored plaintext)
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={newKey}
-                  onChange={(e) => setNewKey(e.target.value)}
-                  placeholder="AIza... or gsk_..."
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Master Vault Passphrase (PBKDF2)
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={sessionPassword}
-                  onChange={(e) => setSessionPassword(e.target.value)}
-                  placeholder="Master passphrase"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs"
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Encrypt & Add to Key Vault</span>
-            </button>
-          </form>
-        </div>
-
-        {/* 2. Voice & Accent Customization Card */}
-        <div className="p-5 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-            <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-              <Volume2 className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Multi-Voice & Accent Synthesis</h3>
-              <p className="text-[11px] text-slate-500">
-                Native Web Speech API SpeechSynthesis with zero latency and 0-token cost.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            {[
-              { name: 'Aoede (US)', accent: 'US American Accent', badge: 'Standard' },
-              { name: 'Charon (UK)', accent: 'British Received Pronunciation', badge: 'BBC Standard' },
-              { name: 'Kore (AU)', accent: 'Australian English Accent', badge: 'Down Under' },
-            ].map((v) => (
-              <div
-                key={v.name}
-                className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between ${
-                  activeAIVoice === v.name
-                    ? 'border-teal-500 bg-teal-50/50 shadow-2xs ring-1 ring-teal-500/30'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-slate-900">{v.name}</span>
-                    <span className="text-[9px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.2 rounded-full">
-                      {v.badge}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mb-3">{v.accent}</p>
-                </div>
-
-                <button
-                  onClick={() => handleTestVoice(v.name)}
-                  className="py-1.5 px-3 rounded-xl bg-white border border-slate-200 hover:bg-teal-50 hover:border-teal-300 text-teal-800 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Volume2 className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Preview Voice</span>
-                </button>
-              </div>
             ))}
           </div>
         </div>

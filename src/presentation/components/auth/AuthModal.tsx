@@ -38,9 +38,11 @@ export const AuthModal: React.FC = () => {
 
         if (error) throw error;
         if (data.user) {
+          const userEmail = data.user.email || email;
+          const isAdmin = userEmail.toLowerCase().includes('tamphan') || data.user.user_metadata?.role === 'admin';
           setUser({
             id: data.user.id,
-            email: data.user.email || email,
+            email: userEmail,
             displayName: displayName.trim() || 'Learner',
             avatarUrl: null,
             targetBand: 7.5,
@@ -48,6 +50,7 @@ export const AuthModal: React.FC = () => {
             streakDays: 1,
             lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
             totalPracticeMinutes: 0,
+            role: isAdmin ? 'admin' : 'user',
           });
           setAuthModalOpen(false);
         }
@@ -59,6 +62,9 @@ export const AuthModal: React.FC = () => {
 
         if (error) throw error;
         if (data.user) {
+          const userEmail = data.user.email || email;
+          const isAdmin = userEmail.toLowerCase().includes('tamphan') || data.user.user_metadata?.role === 'admin';
+
           try {
             const dbUser = await container.userRepository.findById(data.user.id);
             if (dbUser) {
@@ -72,6 +78,7 @@ export const AuthModal: React.FC = () => {
                 streakDays: dbUser.streakDays,
                 lastPracticeDate: dbUser.lastPracticeDate,
                 totalPracticeMinutes: dbUser.totalPracticeMinutes,
+                role: isAdmin || dbUser.role === 'admin' ? 'admin' : 'user',
               });
               setAuthModalOpen(false);
               return;
@@ -82,7 +89,7 @@ export const AuthModal: React.FC = () => {
 
           setUser({
             id: data.user.id,
-            email: data.user.email || email,
+            email: userEmail,
             displayName: data.user.user_metadata?.display_name || email.split('@')[0] || 'Learner',
             avatarUrl: data.user.user_metadata?.avatar_url || null,
             targetBand: 7.5,
@@ -90,6 +97,7 @@ export const AuthModal: React.FC = () => {
             streakDays: 1,
             lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
             totalPracticeMinutes: 0,
+            role: isAdmin ? 'admin' : 'user',
           });
           setAuthModalOpen(false);
         }

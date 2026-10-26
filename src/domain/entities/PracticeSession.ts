@@ -33,6 +33,13 @@ export interface DialogueTurn {
     expectedIpa: string;
     spokenIpa: string;
   }>;
+  mistakes?: Array<{
+    word: string;
+    reason: string;
+    ipa: string;
+    suggestedAlternative: string;
+  }>;
+  isRevealed?: boolean;
 }
 
 export interface DetailedFeedbackPayload {

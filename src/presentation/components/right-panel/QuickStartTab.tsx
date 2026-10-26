@@ -11,7 +11,7 @@ import {
 import { useTamSpeakStore } from '../../store';
 import { CustomTopicBuilder } from './CustomTopicBuilder';
 import { container } from '../../../di/DIContainer';
-import { PracticeMode } from '../../../domain/entities/PracticeSession';
+import { PracticeMode, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { SkillLevel } from '../../../domain/entities/User';
 
 interface PresetCard {
@@ -114,12 +114,17 @@ export const QuickStartTab: React.FC = () => {
     setFeedbackLanguage,
     activeAIVoice,
     setActiveAIVoice,
-    activeTopic,
     setActiveTopic,
     setActiveSession,
     setLastAIMessage,
     setOrbState,
     user,
+    dialogueTurns,
+    clearDialogueTurns,
+    openTopicChangeWarningModal,
+    addDialogueTurn,
+    setHasShownRevealWarningInSession,
+    setRightPanelTab,
   } = useTamSpeakStore();
 
   const [activeCategory, setActiveCategory] = useState<'ielts' | 'conversation'>('ielts');
@@ -140,21 +145,25 @@ export const QuickStartTab: React.FC = () => {
   const presets = activeCategory === 'ielts' ? IELTS_PRESETS : CONVERSATION_PRESETS;
   const currentPreset = presets.find((p) => p.id === selectedPresetId) || presets[0]!;
 
-  const handleStartPractice = async (topicTitle?: string) => {
-    const title = topicTitle || activeTopic?.title || currentPreset.title;
-    const mode = currentPreset.mode;
+  const executeStartPractice = async (preset: PresetCard, topicTitle?: string) => {
+    const title = topicTitle || preset.title;
+    const mode = preset.mode;
 
     const topicId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `topic-${Date.now()}`;
     const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}`;
     const userId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
 
-    // 1. Set active topic in store
+    // 1. Reset previous conversation & penalty flags
+    clearDialogueTurns();
+    setHasShownRevealWarningInSession(false);
+
+    // 2. Set active topic in store
     setActiveTopic({
       id: topicId,
       userId,
       title,
-      description: currentPreset.description,
-      contextPrompt: currentPreset.description,
+      description: preset.description,
+      contextPrompt: preset.description,
       aiRole: activeCategory === 'ielts' ? 'IELTS Speaking Examiner' : 'Conversational Partner',
       userRole: 'Speaking Candidate',
       targetKeywords: ['perspective', 'notably', 'consequently'],
@@ -163,7 +172,7 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 2. Start practice session in domain
+    // 3. Start practice session in domain
     try {
       const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
       const newSession = PSClass.create({
@@ -178,7 +187,7 @@ export const QuickStartTab: React.FC = () => {
       console.warn('Session save notice:', err);
     }
 
-    // 3. Set active session in store
+    // 4. Set active session in store
     setActiveSession({
       id: sessionId,
       userId,
@@ -186,11 +195,11 @@ export const QuickStartTab: React.FC = () => {
       mode,
       status: 'recording',
       durationSeconds: 0,
-      overallScore: null,
-      pronunciationScore: null,
-      fluencyScore: null,
-      lexicalScore: null,
-      grammarScore: null,
+      overallScore: 7.0,
+      pronunciationScore: 7.0,
+      fluencyScore: 7.0,
+      lexicalScore: 7.0,
+      grammarScore: 7.0,
       wordsPerMinute: 0,
       hesitationCount: 0,
       transcriptDialogue: [],
@@ -199,20 +208,51 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 4. Set AI greeting & speak with Web Speech TTS
-    const greeting =
-      activeCategory === 'ielts'
-        ? `Welcome to the IELTS Speaking test. My name is your AI examiner. Today we will focus on: "${title}". Could you please introduce yourself?`
-        : `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, hold [Space] and share your thoughts!`;
+    // 5. Generate tailored initial greeting question
+    let greeting = '';
+    if (mode === 'ielts_part1') {
+      greeting = `Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today's topic is: "${title}". Could you please tell me where you are from and what you like most about your hometown?`;
+    } else if (mode === 'ielts_part2') {
+      greeting = `Welcome to Part 2 of the IELTS Speaking test. Your cue card topic is: "${title}". You have 1 minute to organize your ideas, then please speak continuously for up to 2 minutes. When you are ready, press and hold Space!`;
+    } else if (mode === 'ielts_part3') {
+      greeting = `Welcome to Part 3 of the IELTS Speaking test: Analytical Discussion. Let us explore "${title}". In your opinion, what major developments have impacted this area in recent years?`;
+    } else if (mode === 'ielts_full_mock') {
+      greeting = `Welcome to your Full IELTS Speaking Mock Test. We will complete Part 1, Part 2, and Part 3 consecutively. Let us begin with Part 1: "${title}". Could you please introduce yourself and describe your current daily routine?`;
+    } else {
+      greeting = `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, hold [Space] and share your thoughts!`;
+    }
 
+    // 6. Push initial greeting to dialogueTurns so Q&A displays it immediately
+    const initialTurn: DialogueTurn = {
+      id: `turn-ai-greeting-${Date.now()}`,
+      speaker: 'ai',
+      text: greeting,
+      timestampSeconds: 0,
+    };
+    addDialogueTurn(initialTurn);
+
+    // 7. Speak greeting & switch to Q&A
     setLastAIMessage(greeting);
     setOrbState('speaking');
     setShowTopicPicker(false);
+    setRightPanelTab('qna');
 
     container.speechTTSEngine.speak(greeting, {
       onEnd: () => setOrbState('idle'),
       onError: () => setOrbState('idle'),
     });
+  };
+
+  const handleStartPractice = (topicTitle?: string) => {
+    if (dialogueTurns.length > 0) {
+      openTopicChangeWarningModal(() => executeStartPractice(currentPreset, topicTitle));
+    } else {
+      executeStartPractice(currentPreset, topicTitle);
+    }
+  };
+
+  const handleSelectPreset = (preset: PresetCard) => {
+    setSelectedPresetId(preset.id);
   };
 
   return (
@@ -252,7 +292,7 @@ export const QuickStartTab: React.FC = () => {
         </button>
       </div>
 
-      {/* TOPIC PICKER MODAL/VIEW IF ACTIVE */}
+      {/* TOPIC PICKER VIEW IF ACTIVE */}
       {showTopicPicker ? (
         <div className="flex-1 flex flex-col animate-in fade-in">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
@@ -306,7 +346,7 @@ export const QuickStartTab: React.FC = () => {
               return (
                 <div
                   key={preset.id}
-                  onClick={() => setSelectedPresetId(preset.id)}
+                  onClick={() => handleSelectPreset(preset)}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
                     isSelected
                       ? 'bg-gradient-to-r from-teal-100/90 via-cyan-50/80 to-teal-50/90 border-teal-500 shadow-xs ring-1 ring-teal-500/30'
@@ -321,7 +361,7 @@ export const QuickStartTab: React.FC = () => {
                       </p>
                     </div>
                     <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-white/70 px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
-                      <Clock className="w-3 h-3 text-teal-600" />
+                      <Clock className="w-3.5 h-3.5 text-teal-600" />
                       {preset.duration}
                     </span>
                   </div>
@@ -433,7 +473,10 @@ export const QuickStartTab: React.FC = () => {
                 </span>
                 <select
                   value={activeAIVoice}
-                  onChange={(e) => setActiveAIVoice(e.target.value)}
+                  onChange={(e) => {
+                    setActiveAIVoice(e.target.value);
+                    container.speechTTSEngine.setActivePersona(e.target.value);
+                  }}
                   className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-teal-500"
                 >
                   <option value="Aoede (US)">Aoede (US English)</option>

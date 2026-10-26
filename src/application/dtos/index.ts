@@ -60,4 +60,5 @@ export interface UserProfileDTO {
   streakDays: number;
   lastPracticeDate: string | null;
   totalPracticeMinutes: number;
+  role: 'admin' | 'user';
 }

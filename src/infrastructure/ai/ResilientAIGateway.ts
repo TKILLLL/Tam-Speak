@@ -92,6 +92,7 @@ export class ResilientAIGateway implements IAIGateway {
   private readonly strategies: Map<string, IAIProviderStrategy> = new Map();
   private readonly circuitBreakers: Map<string, CircuitBreaker> = new Map();
   private readonly keyPools: Map<string, KeyPoolEntry> = new Map();
+  private readonly personalKeys: Map<string, string> = new Map();
 
   constructor(
     customKeyConfig?: {
@@ -113,6 +114,28 @@ export class ResilientAIGateway implements IAIGateway {
     this.setKeyPool('openrouter', customKeyConfig?.openRouterKeys ?? []);
   }
 
+  public setPersonalKey(provider: 'gemini' | 'groq' | 'openrouter', key: string | null): void {
+    if (!key || key.trim().length === 0) {
+      this.personalKeys.delete(provider);
+    } else {
+      this.personalKeys.set(provider, key.trim());
+    }
+  }
+
+  public getPersonalKey(provider: 'gemini' | 'groq' | 'openrouter'): string | null {
+    if (this.personalKeys.has(provider)) {
+      return this.personalKeys.get(provider)!;
+    }
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = window.localStorage.getItem(`tamspeak_byok_${provider}`);
+      if (stored && stored.trim().length > 0) {
+        this.personalKeys.set(provider, stored.trim());
+        return stored.trim();
+      }
+    }
+    return null;
+  }
+
   public registerStrategy(strategy: IAIProviderStrategy): void {
     this.strategies.set(strategy.providerId, strategy);
     this.circuitBreakers.set(strategy.providerId, new CircuitBreaker(strategy.providerId));
@@ -128,13 +151,20 @@ export class ResilientAIGateway implements IAIGateway {
   }
 
   /**
-   * Retrieves the current key for a provider and supports key rotation on error.
+   * Retrieves the active key for a provider:
+   * Priority 1: User's Personal Key (BYOK)
+   * Priority 2: System Shared Key Pool
    */
   private getActiveKey(providerCategory: 'gemini' | 'groq' | 'openrouter'): string {
+    const personalKey = this.getPersonalKey(providerCategory);
+    if (personalKey && personalKey.length > 0) {
+      return personalKey;
+    }
+
     const pool = this.keyPools.get(providerCategory);
     if (!pool || pool.keys.length === 0) {
       throw new Error(
-        `No API key configured for provider "${providerCategory}". Please add a key in Settings.`
+        `No API key configured for provider "${providerCategory}". Please add your personal key in Settings.`
       );
     }
     return pool.keys[pool.currentIndex % pool.keys.length]!;

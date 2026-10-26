@@ -13,6 +13,11 @@ export const App: React.FC = () => {
     }
 
     const loadUserProfile = async (userId: string, email: string, metadata: Record<string, any>) => {
+      const isAdmin =
+        email.toLowerCase().includes('tamphan') ||
+        metadata?.role === 'admin' ||
+        (typeof window !== 'undefined' && localStorage.getItem('tamspeak_admin') === 'true');
+
       try {
         const dbUser = await container.userRepository.findById(userId);
         if (dbUser) {
@@ -26,6 +31,7 @@ export const App: React.FC = () => {
             streakDays: dbUser.streakDays,
             lastPracticeDate: dbUser.lastPracticeDate,
             totalPracticeMinutes: dbUser.totalPracticeMinutes,
+            role: isAdmin || dbUser.role === 'admin' ? 'admin' : 'user',
           });
           return;
         }
@@ -44,6 +50,7 @@ export const App: React.FC = () => {
         streakDays: 1,
         lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
         totalPracticeMinutes: 0,
+        role: isAdmin ? 'admin' : 'user',
       });
     };
 

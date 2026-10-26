@@ -20,6 +20,7 @@ export interface UserProps {
   streakDays: number;
   lastPracticeDate: string | null; // Format: YYYY-MM-DD
   totalPracticeMinutes: number;
+  role?: 'admin' | 'user';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +39,7 @@ export class User {
   private _streakDays: number;
   private _lastPracticeDate: string | null;
   private _totalPracticeMinutes: number;
+  private _role: 'admin' | 'user';
   private readonly _createdAt: Date;
   private _updatedAt: Date;
 
@@ -51,6 +53,7 @@ export class User {
     this._streakDays = props.streakDays;
     this._lastPracticeDate = props.lastPracticeDate;
     this._totalPracticeMinutes = props.totalPracticeMinutes;
+    this._role = props.role ?? 'user';
     this._createdAt = props.createdAt;
     this._updatedAt = props.updatedAt;
   }
@@ -102,6 +105,7 @@ export class User {
   public get streakDays(): number { return this._streakDays; }
   public get lastPracticeDate(): string | null { return this._lastPracticeDate; }
   public get totalPracticeMinutes(): number { return this._totalPracticeMinutes; }
+  public get role(): 'admin' | 'user' { return this._role; }
   public get createdAt(): Date { return this._createdAt; }
   public get updatedAt(): Date { return this._updatedAt; }
 

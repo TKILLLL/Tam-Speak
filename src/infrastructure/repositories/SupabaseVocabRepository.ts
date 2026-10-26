@@ -21,88 +21,178 @@ interface VocabularyRow {
 }
 
 export class SupabaseVocabRepository implements IVocabRepository {
+  private static inMemoryVocab = new Map<string, VocabularyItem>();
+
   constructor(private readonly client: SupabaseClient) {}
 
-  public async findById(id: string): Promise<VocabularyItem | null> {
-    const { data, error } = await this.client
-      .from('vocabulary_bank')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle<VocabularyRow>();
+  private isValidUUID(str: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+  }
 
-    if (error || !data) return null;
-    return this.mapToDomain(data);
+  public async findById(id: string): Promise<VocabularyItem | null> {
+    if (SupabaseVocabRepository.inMemoryVocab.has(id)) {
+      return SupabaseVocabRepository.inMemoryVocab.get(id) || null;
+    }
+
+    if (!this.isValidUUID(id)) return null;
+
+    try {
+      const { data, error } = await this.client
+        .from('vocabulary_bank')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle<VocabularyRow>();
+
+      if (error || !data) return null;
+      const domain = this.mapToDomain(data);
+      SupabaseVocabRepository.inMemoryVocab.set(id, domain);
+      return domain;
+    } catch {
+      return null;
+    }
   }
 
   public async findByWord(userId: string, word: string): Promise<VocabularyItem | null> {
-    const { data, error } = await this.client
-      .from('vocabulary_bank')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('word', word.trim().toLowerCase())
-      .maybeSingle<VocabularyRow>();
+    const normalizedWord = word.trim().toLowerCase();
+    for (const item of SupabaseVocabRepository.inMemoryVocab.values()) {
+      if (item.userId === userId && item.word.toLowerCase() === normalizedWord) {
+        return item;
+      }
+    }
 
-    if (error || !data) return null;
-    return this.mapToDomain(data);
+    if (!this.isValidUUID(userId)) return null;
+
+    try {
+      const { data, error } = await this.client
+        .from('vocabulary_bank')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('word', normalizedWord)
+        .maybeSingle<VocabularyRow>();
+
+      if (error || !data) return null;
+      const domain = this.mapToDomain(data);
+      SupabaseVocabRepository.inMemoryVocab.set(domain.id, domain);
+      return domain;
+    } catch {
+      return null;
+    }
   }
 
   public async findDueForReview(userId: string, limit = 20): Promise<VocabularyItem[]> {
     const today = new Date().toISOString().split('T')[0]!;
+    const inMemList = Array.from(SupabaseVocabRepository.inMemoryVocab.values()).filter(
+      (v) => v.userId === userId && v.nextReviewDate <= today
+    );
 
-    const { data, error } = await this.client
-      .from('vocabulary_bank')
-      .select('*')
-      .eq('user_id', userId)
-      .lte('next_review_date', today)
-      .order('next_review_date', { ascending: true })
-      .limit(limit)
-      .returns<VocabularyRow[]>();
+    if (!this.isValidUUID(userId)) {
+      return inMemList.slice(0, limit);
+    }
 
-    if (error || !data) return [];
-    return data.map((row) => this.mapToDomain(row));
+    try {
+      const { data, error } = await this.client
+        .from('vocabulary_bank')
+        .select('*')
+        .eq('user_id', userId)
+        .lte('next_review_date', today)
+        .order('next_review_date', { ascending: true })
+        .limit(limit)
+        .returns<VocabularyRow[]>();
+
+      if (error || !data) return inMemList.slice(0, limit);
+      const dbList = data.map((row) => this.mapToDomain(row));
+      dbList.forEach((item) => SupabaseVocabRepository.inMemoryVocab.set(item.id, item));
+      return dbList;
+    } catch {
+      return inMemList.slice(0, limit);
+    }
   }
 
   public async findAllByUserId(userId: string): Promise<VocabularyItem[]> {
-    const { data, error } = await this.client
-      .from('vocabulary_bank')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .returns<VocabularyRow[]>();
+    const inMemList = Array.from(SupabaseVocabRepository.inMemoryVocab.values()).filter(
+      (v) => v.userId === userId
+    );
 
-    if (error || !data) return [];
-    return data.map((row) => this.mapToDomain(row));
+    if (!this.isValidUUID(userId)) {
+      return inMemList;
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('vocabulary_bank')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .returns<VocabularyRow[]>();
+
+      if (error || !data) return inMemList;
+      const dbList = data.map((row) => this.mapToDomain(row));
+      dbList.forEach((item) => SupabaseVocabRepository.inMemoryVocab.set(item.id, item));
+      return dbList;
+    } catch {
+      return inMemList;
+    }
   }
 
   public async save(item: VocabularyItem): Promise<void> {
-    const row = this.mapToRow(item);
-    const { error } = await this.client.from('vocabulary_bank').insert(row);
-    if (error) {
-      throw new Error(`Failed to save vocabulary: ${error.message}`);
+    SupabaseVocabRepository.inMemoryVocab.set(item.id, item);
+
+    if (!this.isValidUUID(item.id) || !this.isValidUUID(item.userId)) {
+      return;
+    }
+
+    try {
+      const row = this.mapToRow(item);
+      const { error } = await this.client.from('vocabulary_bank').insert(row);
+      if (error) {
+        console.warn('Supabase vocabulary_bank insert skipped/failed:', error.message);
+      }
+    } catch (err) {
+      console.warn('Supabase vocabulary_bank insert network error:', err);
     }
   }
 
   public async update(item: VocabularyItem): Promise<void> {
-    const row = this.mapToRow(item);
-    const { error } = await this.client
-      .from('vocabulary_bank')
-      .update(row)
-      .eq('id', item.id);
+    SupabaseVocabRepository.inMemoryVocab.set(item.id, item);
 
-    if (error) {
-      throw new Error(`Failed to update vocabulary: ${error.message}`);
+    if (!this.isValidUUID(item.id) || !this.isValidUUID(item.userId)) {
+      return;
+    }
+
+    try {
+      const row = this.mapToRow(item);
+      const { error } = await this.client
+        .from('vocabulary_bank')
+        .update(row)
+        .eq('id', item.id);
+
+      if (error) {
+        console.warn('Supabase vocabulary_bank update failed:', error.message);
+      }
+    } catch (err) {
+      console.warn('Supabase vocabulary_bank update network error:', err);
     }
   }
 
   public async delete(id: string, userId: string): Promise<void> {
-    const { error } = await this.client
-      .from('vocabulary_bank')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', userId);
+    SupabaseVocabRepository.inMemoryVocab.delete(id);
 
-    if (error) {
-      throw new Error(`Failed to delete vocabulary: ${error.message}`);
+    if (!this.isValidUUID(id) || !this.isValidUUID(userId)) {
+      return;
+    }
+
+    try {
+      const { error } = await this.client
+        .from('vocabulary_bank')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.warn('Supabase vocabulary_bank delete failed:', error.message);
+      }
+    } catch (err) {
+      console.warn('Supabase vocabulary_bank delete network error:', err);
     }
   }
 

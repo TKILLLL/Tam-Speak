@@ -6,15 +6,29 @@ export interface VoiceOption {
   voiceObject: SpeechSynthesisVoice;
 }
 
+export interface PersonaVoiceConfig {
+  persona: string;
+  mappedVoiceName: string;
+  actualVoice: SpeechSynthesisVoice | null;
+  accent: 'US' | 'UK' | 'AU';
+  pitch: number;
+  rate: number;
+  previewSample: string;
+}
+
 /**
  * WebSpeechTTSEngine
  * Zero-Token, multi-voice Text-to-Speech using native Web Speech Synthesis.
- * Supports natural accent selection (US / UK / AU) and interactive playback control.
+ * Supports Smart Voice Mapping for Aoede (US), Charon (UK), and Kore (AU).
+ * Handles asynchronous getVoices() across macOS, Windows, Chrome, Safari, and Edge.
  */
 export class WebSpeechTTSEngine {
   private availableVoices: VoiceOption[] = [];
   private selectedVoice: SpeechSynthesisVoice | null = null;
   private isSpeaking = false;
+  private activePersona: string = 'Aoede (US)';
+  private manualPersonaVoiceOverrides: Record<string, string> = {};
+  private onVoicesLoadedCallbacks: Array<() => void> = [];
 
   constructor() {
     this.loadVoices();
@@ -25,13 +39,16 @@ export class WebSpeechTTSEngine {
 
     const populate = () => {
       const rawVoices = window.speechSynthesis.getVoices();
-      const englishVoices = rawVoices.filter((v) => v.lang.startsWith('en'));
+      if (!rawVoices || rawVoices.length === 0) return;
 
-      this.availableVoices = englishVoices.map((v, index) => {
+      const englishVoices = rawVoices.filter((v) => v.lang.toLowerCase().startsWith('en'));
+
+      this.availableVoices = (englishVoices.length > 0 ? englishVoices : rawVoices).map((v, index) => {
         let accent: 'US' | 'UK' | 'AU' | 'Other' = 'Other';
-        if (v.lang.includes('US') || v.lang === 'en_US') accent = 'US';
-        else if (v.lang.includes('GB') || v.lang === 'en_GB') accent = 'UK';
-        else if (v.lang.includes('AU') || v.lang === 'en_AU') accent = 'AU';
+        const langUpper = v.lang.toUpperCase();
+        if (langUpper.includes('US') || langUpper === 'EN_US') accent = 'US';
+        else if (langUpper.includes('GB') || langUpper.includes('UK') || langUpper === 'EN_GB') accent = 'UK';
+        else if (langUpper.includes('AU') || langUpper === 'EN_AU') accent = 'AU';
 
         return {
           id: `voice-${index}-${v.name}`,
@@ -42,11 +59,8 @@ export class WebSpeechTTSEngine {
         };
       });
 
-      // Default to US voice or first available English voice
-      const defaultUsVoice = this.availableVoices.find((v) => v.accent === 'US') || this.availableVoices[0];
-      if (defaultUsVoice) {
-        this.selectedVoice = defaultUsVoice.voiceObject;
-      }
+      // Notify any registered listeners that voices have loaded
+      this.onVoicesLoadedCallbacks.forEach((cb) => cb());
     };
 
     populate();
@@ -55,11 +69,137 @@ export class WebSpeechTTSEngine {
     }
   }
 
+  public subscribeVoicesLoaded(callback: () => void): () => void {
+    this.onVoicesLoadedCallbacks.push(callback);
+    // If voices already available, invoke immediately
+    if (this.availableVoices.length > 0) {
+      callback();
+    }
+    return () => {
+      this.onVoicesLoadedCallbacks = this.onVoicesLoadedCallbacks.filter((cb) => cb !== callback);
+    };
+  }
+
   public getVoices(): VoiceOption[] {
     if (this.availableVoices.length === 0) {
       this.loadVoices();
     }
     return this.availableVoices;
+  }
+
+  /**
+   * Smart Voice Mapper for Aoede (US), Charon (UK), Kore (AU)
+   */
+  public getPersonaConfig(persona: string): PersonaVoiceConfig {
+    const voices = this.getVoices();
+    const manualVoiceName = this.manualPersonaVoiceOverrides[persona];
+
+    if (manualVoiceName) {
+      const found = voices.find((v) => v.name === manualVoiceName);
+      if (found) {
+        return {
+          persona,
+          mappedVoiceName: found.name,
+          actualVoice: found.voiceObject,
+          accent: found.accent === 'Other' ? 'US' : found.accent,
+          pitch: persona.includes('UK') ? 0.9 : persona.includes('AU') ? 1.1 : 1.05,
+          rate: persona.includes('UK') ? 0.98 : persona.includes('AU') ? 1.02 : 1.0,
+          previewSample: this.getPreviewSample(persona),
+        };
+      }
+    }
+
+    if (persona.includes('UK') || persona.toLowerCase().includes('charon')) {
+      // Prioritize male UK voice (Google UK English Male, Microsoft George, Daniel, Arthur)
+      const ukVoices = voices.filter((v) => v.accent === 'UK');
+      const maleUkVoice = ukVoices.find((v) =>
+        /male|george|daniel|arthur|oliver/i.test(v.name)
+      ) || ukVoices[0] || voices.find((v) => /uk|gb/i.test(v.lang)) || voices[0];
+
+      return {
+        persona: 'Charon (UK)',
+        mappedVoiceName: maleUkVoice?.name || 'Default British Voice',
+        actualVoice: maleUkVoice?.voiceObject || null,
+        accent: 'UK',
+        pitch: 0.9,
+        rate: 0.98,
+        previewSample: "Greetings. I am Charon, your British IELTS examiner. We shall focus on your fluency, coherence, and lexical resource.",
+      };
+    }
+
+    if (persona.includes('AU') || persona.toLowerCase().includes('kore')) {
+      // Prioritize Australian voice (Karen, Catherine, Natasha, Google Australian)
+      const auVoices = voices.filter((v) => v.accent === 'AU');
+      const preferredAu = auVoices.find((v) =>
+        /karen|catherine|natasha|australian/i.test(v.name)
+      ) || auVoices[0] || voices[0];
+
+      return {
+        persona: 'Kore (AU)',
+        mappedVoiceName: preferredAu?.name || 'Default Australian Voice',
+        actualVoice: preferredAu?.voiceObject || null,
+        accent: 'AU',
+        pitch: 1.1,
+        rate: 1.02,
+        previewSample: "G'day! I am Kore, your Australian English conversation coach. Ready to speak naturally with confidence?",
+      };
+    }
+
+    // Default: Aoede (US) - prioritize female US voice (Samantha, Jenny, Aria, Google US English, Zira)
+    const usVoices = voices.filter((v) => v.accent === 'US');
+    const femaleUsVoice = usVoices.find((v) =>
+      /female|samantha|jenny|aria|victoria|zira|google us english/i.test(v.name)
+    ) || usVoices[0] || voices[0];
+
+    return {
+      persona: 'Aoede (US)',
+      mappedVoiceName: femaleUsVoice?.name || 'Default American Voice',
+      actualVoice: femaleUsVoice?.voiceObject || null,
+      accent: 'US',
+      pitch: 1.05,
+      rate: 1.0,
+      previewSample: "Hello! I am Aoede, your American English pronunciation coach. Let's speak with natural clarity and confidence.",
+    };
+  }
+
+  private getPreviewSample(persona: string): string {
+    if (persona.includes('UK')) {
+      return "Greetings. I am Charon, your British IELTS examiner. We shall focus on your fluency, coherence, and lexical resource.";
+    }
+    if (persona.includes('AU')) {
+      return "G'day! I am Kore, your Australian English conversation coach. Ready to speak naturally with confidence?";
+    }
+    return "Hello! I am Aoede, your American English pronunciation coach. Let's speak with natural clarity and confidence.";
+  }
+
+  public setActivePersona(persona: string): void {
+    this.activePersona = persona;
+    const config = this.getPersonaConfig(persona);
+    if (config.actualVoice) {
+      this.selectedVoice = config.actualVoice;
+    }
+  }
+
+  public setManualVoiceOverride(persona: string, voiceName: string): void {
+    this.manualPersonaVoiceOverrides[persona] = voiceName;
+    if (this.activePersona === persona) {
+      this.setActivePersona(persona);
+    }
+  }
+
+  public previewVoice(
+    persona: string,
+    callbacks?: { onStart?: () => void; onEnd?: () => void; onError?: (err: Error) => void }
+  ): void {
+    const config = this.getPersonaConfig(persona);
+    this.speak(config.previewSample, {
+      voice: config.actualVoice || undefined,
+      pitch: config.pitch,
+      rate: config.rate,
+      onStart: callbacks?.onStart,
+      onEnd: callbacks?.onEnd,
+      onError: callbacks?.onError,
+    });
   }
 
   public setVoiceByAccent(accent: 'US' | 'UK' | 'AU'): void {
@@ -79,8 +219,9 @@ export class WebSpeechTTSEngine {
   public speak(
     text: string,
     options?: {
-      rate?: number; // 0.8 to 1.2
+      rate?: number;
       pitch?: number;
+      voice?: SpeechSynthesisVoice;
       onStart?: () => void;
       onEnd?: () => void;
       onError?: (err: Error) => void;
@@ -94,12 +235,11 @@ export class WebSpeechTTSEngine {
     this.stop();
 
     const utterance = new SpeechSynthesisUtterance(text);
-    if (this.selectedVoice) {
-      utterance.voice = this.selectedVoice;
-    }
+    const personaConfig = this.getPersonaConfig(this.activePersona);
 
-    utterance.rate = options?.rate ?? 0.95; // Slightly slower than 1.0 for optimal ESL learner clarity
-    utterance.pitch = options?.pitch ?? 1.0;
+    utterance.voice = options?.voice || this.selectedVoice || personaConfig.actualVoice;
+    utterance.pitch = options?.pitch ?? personaConfig.pitch;
+    utterance.rate = options?.rate ?? personaConfig.rate;
 
     utterance.onstart = () => {
       this.isSpeaking = true;

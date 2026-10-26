@@ -48,4 +48,7 @@ export interface IAIGateway {
     currentBand: BandScore;
     targetBand: BandScore;
   }): Promise<UpgradedExpressionResult>;
+
+  setPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter', key: string | null): void;
+  getPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter'): string | null;
 }
