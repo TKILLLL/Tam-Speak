@@ -144,10 +144,14 @@ export const QuickStartTab: React.FC = () => {
     const title = topicTitle || activeTopic?.title || currentPreset.title;
     const mode = currentPreset.mode;
 
-    // Set active topic in store
+    const topicId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `topic-${Date.now()}`;
+    const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}`;
+    const userId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
+
+    // 1. Set active topic in store
     setActiveTopic({
-      id: `topic-${Date.now()}`,
-      userId: user?.id || 'guest-user',
+      id: topicId,
+      userId,
       title,
       description: currentPreset.description,
       contextPrompt: currentPreset.description,
@@ -159,21 +163,26 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // Start practice session in domain
-    const sessionId = `sess-${Date.now()}`;
-    const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
-    const newSession = PSClass.create({
-      id: sessionId,
-      userId: user?.id || 'guest-user',
-      mode,
-    });
-    newSession.startRecording();
-    await container.sessionRepository.save(newSession);
+    // 2. Start practice session in domain
+    try {
+      const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
+      const newSession = PSClass.create({
+        id: sessionId,
+        userId,
+        mode,
+        topicId,
+      });
+      newSession.startRecording();
+      await container.sessionRepository.save(newSession);
+    } catch (err) {
+      console.warn('Session save notice:', err);
+    }
 
+    // 3. Set active session in store
     setActiveSession({
       id: sessionId,
-      userId: user?.id || 'guest-user',
-      topicId: null,
+      userId,
+      topicId,
       mode,
       status: 'recording',
       durationSeconds: 0,
@@ -190,6 +199,7 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
+    // 4. Set AI greeting & speak with Web Speech TTS
     const greeting =
       activeCategory === 'ielts'
         ? `Welcome to the IELTS Speaking test. My name is your AI examiner. Today we will focus on: "${title}". Could you please introduce yourself?`

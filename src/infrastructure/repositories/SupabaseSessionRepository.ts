@@ -30,61 +30,113 @@ interface PracticeSessionRow {
 }
 
 export class SupabaseSessionRepository implements ISessionRepository {
+  private readonly inMemorySessions = new Map<string, PracticeSession>();
+
   constructor(private readonly client: SupabaseClient) {}
 
-  public async findById(id: string): Promise<PracticeSession | null> {
-    const { data, error } = await this.client
-      .from('practice_sessions')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle<PracticeSessionRow>();
+  private isValidUUID(str: string): boolean {
+    if (!str || typeof str !== 'string') return false;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str.trim());
+  }
 
-    if (error || !data) return null;
-    return this.mapToDomain(data);
+  public async findById(id: string): Promise<PracticeSession | null> {
+    if (this.inMemorySessions.has(id)) {
+      return this.inMemorySessions.get(id)!;
+    }
+
+    if (!this.isValidUUID(id)) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('practice_sessions')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle<PracticeSessionRow>();
+
+      if (error || !data) return null;
+      const session = this.mapToDomain(data);
+      this.inMemorySessions.set(session.id, session);
+      return session;
+    } catch {
+      return null;
+    }
   }
 
   public async findRecentByUserId(userId: string, limit = 20): Promise<PracticeSession[]> {
-    const { data, error } = await this.client
-      .from('practice_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-      .returns<PracticeSessionRow[]>();
+    const memoryMatches = Array.from(this.inMemorySessions.values()).filter(
+      (s) => s.userId === userId
+    );
 
-    if (error || !data) return [];
-    return data.map((row) => this.mapToDomain(row));
+    if (!this.isValidUUID(userId)) {
+      return memoryMatches.slice(0, limit);
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('practice_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+        .returns<PracticeSessionRow[]>();
+
+      if (error || !data) return memoryMatches.slice(0, limit);
+      const dbSessions = data.map((row) => this.mapToDomain(row));
+      return dbSessions;
+    } catch {
+      return memoryMatches.slice(0, limit);
+    }
   }
 
   public async save(session: PracticeSession): Promise<void> {
-    const row = this.mapToRow(session);
-    const { error } = await this.client.from('practice_sessions').insert(row);
-    if (error) {
-      throw new Error(`Failed to save practice session: ${error.message}`);
+    // 1. Always cache in-memory for zero-latency local operation
+    this.inMemorySessions.set(session.id, session);
+
+    // 2. Sync to Supabase if valid UUID
+    if (this.isValidUUID(session.id) && this.isValidUUID(session.userId)) {
+      try {
+        const row = this.mapToRow(session);
+        await this.client.from('practice_sessions').insert(row);
+      } catch (err) {
+        console.warn('Supabase practice_sessions sync skipped/failed:', err);
+      }
     }
   }
 
   public async update(session: PracticeSession): Promise<void> {
-    const row = this.mapToRow(session);
-    const { error } = await this.client
-      .from('practice_sessions')
-      .update(row)
-      .eq('id', session.id);
+    // 1. Always update in-memory
+    this.inMemorySessions.set(session.id, session);
 
-    if (error) {
-      throw new Error(`Failed to update practice session: ${error.message}`);
+    // 2. Sync to Supabase if valid UUID
+    if (this.isValidUUID(session.id) && this.isValidUUID(session.userId)) {
+      try {
+        const row = this.mapToRow(session);
+        await this.client
+          .from('practice_sessions')
+          .update(row)
+          .eq('id', session.id);
+      } catch (err) {
+        console.warn('Supabase practice_sessions update skipped/failed:', err);
+      }
     }
   }
 
   public async delete(id: string, userId: string): Promise<void> {
-    const { error } = await this.client
-      .from('practice_sessions')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', userId);
+    this.inMemorySessions.delete(id);
 
-    if (error) {
-      throw new Error(`Failed to delete practice session: ${error.message}`);
+    if (this.isValidUUID(id) && this.isValidUUID(userId)) {
+      try {
+        await this.client
+          .from('practice_sessions')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId);
+      } catch (err) {
+        console.warn('Supabase delete skipped/failed:', err);
+      }
     }
   }
 

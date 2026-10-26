@@ -57,13 +57,20 @@ export const HoldSpaceToTalk: React.FC = () => {
     setIsHolding(true);
     setOrbState('listening');
 
+    // 0. Cancel any currently playing AI audio so mic doesn't pick up TTS echo
+    container.speechTTSEngine.stop();
+
     // 1. Zero Learning Curve: Auto-pick starter topic if none selected
     let currentSessionId = activeSession?.id;
+    let currentTopicId = activeTopic?.id;
+    const currentUserId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
+
     if (!activeTopic) {
       const randomStarter = RANDOM_STARTER_TOPICS[Math.floor(Math.random() * RANDOM_STARTER_TOPICS.length)]!;
+      currentTopicId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `topic-${Date.now()}`;
       setActiveTopic({
-        id: `topic-auto-${Date.now()}`,
-        userId: user?.id || 'guest-user',
+        id: currentTopicId,
+        userId: currentUserId,
         title: randomStarter.title,
         description: randomStarter.context,
         contextPrompt: randomStarter.context,
@@ -78,21 +85,24 @@ export const HoldSpaceToTalk: React.FC = () => {
 
     // 2. Initialize PracticeSession if not active
     if (!currentSessionId) {
-      const newSessionId = `session-${Date.now()}`;
+      currentSessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
       const newSession = PracticeSession.create({
-        id: newSessionId,
-        userId: user?.id || 'guest-user',
+        id: currentSessionId,
+        userId: currentUserId,
         mode: 'daily_conversation',
-        topicId: activeTopic?.id || null,
+        topicId: currentTopicId || null,
       });
       newSession.startRecording();
-      await container.sessionRepository.save(newSession);
+      try {
+        await container.sessionRepository.save(newSession);
+      } catch (err) {
+        console.warn('Session save local fallback:', err);
+      }
 
-      currentSessionId = newSessionId;
       setActiveSession({
-        id: newSessionId,
-        userId: user?.id || 'guest-user',
-        topicId: activeTopic?.id || null,
+        id: currentSessionId,
+        userId: currentUserId,
+        topicId: currentTopicId || null,
         mode: 'daily_conversation',
         status: 'recording',
         durationSeconds: 0,
@@ -123,8 +133,12 @@ export const HoldSpaceToTalk: React.FC = () => {
         onUpdate: (finalText, interimText) => {
           transcriptBufferRef.current = `${finalText} ${interimText}`.trim();
         },
+        onError: (err) => {
+          console.warn('Speech recognition warning:', err);
+        },
       });
-    } catch {
+    } catch (err) {
+      console.error('Failed to access microphone or start STT:', err);
       setOrbState('idle');
       setIsHolding(false);
       isHoldingRef.current = false;
@@ -145,8 +159,8 @@ export const HoldSpaceToTalk: React.FC = () => {
     const analyzerStats = audioAnalyzer.stopAnalyzing(wordCount);
 
     // 3. Stop MediaRecorder and commit Blob to Dexie
-    const userId = user?.id || 'guest-user';
-    const sessionId = activeSession?.id || `session-${Date.now()}`;
+    const userId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
+    const sessionId = activeSession?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`);
 
     try {
       await container.audioRecorderEngine.stop(userId, sessionId);
@@ -155,6 +169,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     }
 
     if (!spokenTranscript.trim()) {
+      setLastAIMessage("I couldn't hear you clearly. Please press and hold [Space] while speaking into your microphone!");
       setOrbState('idle');
       return;
     }
@@ -184,8 +199,17 @@ export const HoldSpaceToTalk: React.FC = () => {
         onEnd: () => setOrbState('idle'),
         onError: () => setOrbState('idle'),
       });
-    } catch {
-      setOrbState('idle');
+    } catch (err) {
+      console.warn('AI execution fallback:', err);
+      const fallbackReply = `That is an interesting thought regarding "${activeTopic?.title || 'our discussion'}". Could you elaborate more on how that impacts you personally?`;
+      setLastAIMessage(fallbackReply);
+      setOrbState('speaking');
+      setRightPanelTab('qna');
+
+      container.speechTTSEngine.speak(fallbackReply, {
+        onEnd: () => setOrbState('idle'),
+        onError: () => setOrbState('idle'),
+      });
     }
   }, [activeSession, activeTopic, audioAnalyzer, setLastAIMessage, setOrbState, setRightPanelTab, user]);
 

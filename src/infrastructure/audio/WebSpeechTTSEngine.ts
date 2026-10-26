@@ -116,6 +116,9 @@ export class WebSpeechTTSEngine {
       options?.onError?.(new Error(`TTS Error: ${e.error}`));
     };
 
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     window.speechSynthesis.speak(utterance);
   }
 

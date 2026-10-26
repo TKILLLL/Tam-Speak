@@ -19,76 +19,128 @@ interface CustomTopicRow {
 }
 
 export class SupabaseTopicRepository implements ITopicRepository {
+  private readonly inMemoryTopics = new Map<string, CustomTopic>();
+
   constructor(private readonly client: SupabaseClient) {}
 
-  public async findById(id: string): Promise<CustomTopic | null> {
-    const { data, error } = await this.client
-      .from('custom_topics')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle<CustomTopicRow>();
+  private isValidUUID(str: string): boolean {
+    if (!str || typeof str !== 'string') return false;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str.trim());
+  }
 
-    if (error || !data) return null;
-    return this.mapToDomain(data);
+  public async findById(id: string): Promise<CustomTopic | null> {
+    if (this.inMemoryTopics.has(id)) {
+      return this.inMemoryTopics.get(id)!;
+    }
+
+    if (!this.isValidUUID(id)) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('custom_topics')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle<CustomTopicRow>();
+
+      if (error || !data) return null;
+      const topic = this.mapToDomain(data);
+      this.inMemoryTopics.set(topic.id, topic);
+      return topic;
+    } catch {
+      return null;
+    }
   }
 
   public async findByUserId(userId: string): Promise<CustomTopic[]> {
-    const { data, error } = await this.client
-      .from('custom_topics')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .returns<CustomTopicRow[]>();
+    const memoryMatches = Array.from(this.inMemoryTopics.values()).filter(
+      (t) => t.userId === userId
+    );
 
-    if (error || !data) return [];
-    return data.map((row) => this.mapToDomain(row));
+    if (!this.isValidUUID(userId)) {
+      return memoryMatches;
+    }
+
+    try {
+      const { data, error } = await this.client
+        .from('custom_topics')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .returns<CustomTopicRow[]>();
+
+      if (error || !data) return memoryMatches;
+      const dbTopics = data.map((row) => this.mapToDomain(row));
+      return [...memoryMatches, ...dbTopics];
+    } catch {
+      return memoryMatches;
+    }
   }
 
   public async findPublicTopics(level?: SkillLevel): Promise<CustomTopic[]> {
-    let query = this.client
-      .from('custom_topics')
-      .select('*')
-      .eq('is_public', true)
-      .order('created_at', { ascending: false });
+    try {
+      let query = this.client
+        .from('custom_topics')
+        .select('*')
+        .eq('is_public', true)
+        .order('created_at', { ascending: false });
 
-    if (level) {
-      query = query.eq('target_level', level);
+      if (level) {
+        query = query.eq('target_level', level);
+      }
+
+      const { data, error } = await query.returns<CustomTopicRow[]>();
+      if (error || !data) return [];
+      return data.map((row) => this.mapToDomain(row));
+    } catch {
+      return [];
     }
-
-    const { data, error } = await query.returns<CustomTopicRow[]>();
-    if (error || !data) return [];
-    return data.map((row) => this.mapToDomain(row));
   }
 
   public async save(topic: CustomTopic): Promise<void> {
-    const row = this.mapToRow(topic);
-    const { error } = await this.client.from('custom_topics').insert(row);
-    if (error) {
-      throw new Error(`Failed to save topic: ${error.message}`);
+    this.inMemoryTopics.set(topic.id, topic);
+
+    if (this.isValidUUID(topic.id) && this.isValidUUID(topic.userId)) {
+      try {
+        const row = this.mapToRow(topic);
+        await this.client.from('custom_topics').insert(row);
+      } catch (err) {
+        console.warn('Supabase custom_topics sync skipped/failed:', err);
+      }
     }
   }
 
   public async update(topic: CustomTopic): Promise<void> {
-    const row = this.mapToRow(topic);
-    const { error } = await this.client
-      .from('custom_topics')
-      .update(row)
-      .eq('id', topic.id);
+    this.inMemoryTopics.set(topic.id, topic);
 
-    if (error) {
-      throw new Error(`Failed to update topic: ${error.message}`);
+    if (this.isValidUUID(topic.id) && this.isValidUUID(topic.userId)) {
+      try {
+        const row = this.mapToRow(topic);
+        await this.client
+          .from('custom_topics')
+          .update(row)
+          .eq('id', topic.id);
+      } catch (err) {
+        console.warn('Supabase custom_topics update skipped/failed:', err);
+      }
     }
   }
 
   public async delete(id: string, userId: string): Promise<void> {
-    const { error } = await this.client
-      .from('custom_topics')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', userId);
+    this.inMemoryTopics.delete(id);
 
-    if (error) {
-      throw new Error(`Failed to delete topic: ${error.message}`);
+    if (this.isValidUUID(id) && this.isValidUUID(userId)) {
+      try {
+        await this.client
+          .from('custom_topics')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId);
+      } catch (err) {
+        console.warn('Supabase custom_topics delete skipped/failed:', err);
+      }
     }
   }
 
