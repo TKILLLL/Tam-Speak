@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, Loader2 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
-import { supabase } from '../../../infrastructure/database/supabase/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../../../infrastructure/database/supabase/supabaseClient';
+import { container } from '../../../di/DIContainer';
 
 export const AuthModal: React.FC = () => {
   const { authModalOpen, setAuthModalOpen, setUser } = useTamSpeakStore();
@@ -16,6 +17,10 @@ export const AuthModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSupabaseConfigured()) {
+      setErrorMsg('Supabase chưa được cấu hình. Vui lòng thiết lập VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trong file .env (local) hoặc Environment Variables (Vercel).');
+      return;
+    }
     setLoading(true);
     setErrorMsg(null);
 
@@ -54,16 +59,37 @@ export const AuthModal: React.FC = () => {
 
         if (error) throw error;
         if (data.user) {
+          try {
+            const dbUser = await container.userRepository.findById(data.user.id);
+            if (dbUser) {
+              setUser({
+                id: dbUser.id,
+                email: dbUser.email.getValue(),
+                displayName: dbUser.displayName,
+                avatarUrl: dbUser.avatarUrl,
+                targetBand: dbUser.targetBand.getValue(),
+                currentLevel: dbUser.currentLevel,
+                streakDays: dbUser.streakDays,
+                lastPracticeDate: dbUser.lastPracticeDate,
+                totalPracticeMinutes: dbUser.totalPracticeMinutes,
+              });
+              setAuthModalOpen(false);
+              return;
+            }
+          } catch (profileErr) {
+            console.warn('Could not load profile from DB:', profileErr);
+          }
+
           setUser({
             id: data.user.id,
             email: data.user.email || email,
-            displayName: data.user.user_metadata?.display_name || 'Learner',
-            avatarUrl: null,
+            displayName: data.user.user_metadata?.display_name || email.split('@')[0] || 'Learner',
+            avatarUrl: data.user.user_metadata?.avatar_url || null,
             targetBand: 7.5,
             currentLevel: 'b2',
-            streakDays: 3,
+            streakDays: 1,
             lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
-            totalPracticeMinutes: 30,
+            totalPracticeMinutes: 0,
           });
           setAuthModalOpen(false);
         }
@@ -76,6 +102,10 @@ export const AuthModal: React.FC = () => {
   };
 
   const handleGoogleOAuth = async () => {
+    if (!isSupabaseConfigured()) {
+      setErrorMsg('Supabase chưa được cấu hình. Vui lòng thiết lập VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trong file .env (local) hoặc Environment Variables (Vercel).');
+      return;
+    }
     try {
       await supabase.auth.signInWithOAuth({
         provider: 'google',

@@ -318,3 +318,43 @@ CREATE POLICY "Users can update their own vocabulary"
 CREATE POLICY "Users can delete their own vocabulary"
   ON vocabulary_bank FOR DELETE
   USING (auth.uid() = user_id);
+
+-- ==============================================================================
+-- 7. AUTOMATED PROFILE PROVISIONING TRIGGER (AUTH.USERS -> PROFILES)
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id,
+    email,
+    display_name,
+    avatar_url,
+    target_band,
+    current_level,
+    streak_days,
+    total_practice_minutes
+  )
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'display_name', NEW.raw_user_meta_data->>'full_name', 'Learner'),
+    NEW.raw_user_meta_data->>'avatar_url',
+    7.5,
+    'b2',
+    1,
+    0
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    display_name = COALESCE(EXCLUDED.display_name, public.profiles.display_name),
+    avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+

@@ -78,18 +78,8 @@ export interface TamSpeakState {
 }
 
 export const useTamSpeakStore = create<TamSpeakState>((set) => ({
-  // User & Auth defaults
-  user: {
-    id: 'guest-user-1',
-    email: 'learner@tamspeak.local',
-    displayName: 'Tam Phan',
-    avatarUrl: null,
-    targetBand: 7.5,
-    currentLevel: 'b2',
-    streakDays: 3,
-    lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
-    totalPracticeMinutes: 45,
-  },
+  // User & Auth defaults (null initially until Supabase session restores)
+  user: null,
   authModalOpen: false,
   setAuthModalOpen: (open) => set({ authModalOpen: open }),
   setUser: (user) => set({ user }),

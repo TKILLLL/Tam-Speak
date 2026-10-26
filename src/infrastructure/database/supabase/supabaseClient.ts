@@ -15,3 +15,13 @@ export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON
     detectSessionInUrl: true,
   },
 });
+
+export const isSupabaseConfigured = (): boolean => {
+  return (
+    SUPABASE_URL !== 'https://mock-tamspeak.supabase.co' &&
+    !SUPABASE_URL.includes('mock-tamspeak') &&
+    SUPABASE_ANON_KEY !== 'mock-anon-key-tamspeak-2026' &&
+    SUPABASE_ANON_KEY.length > 20
+  );
+};
+

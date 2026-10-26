@@ -38,6 +38,7 @@ export const Sidebar: React.FC = () => {
     sidebarCollapsed,
     toggleSidebar,
     user,
+    setAuthModalOpen,
   } = useTamSpeakStore();
 
   return (
@@ -48,17 +49,24 @@ export const Sidebar: React.FC = () => {
     >
       {/* User Header Profile */}
       <div className="p-3 border-b border-slate-100 flex items-center justify-between">
-        <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+        <div
+          onClick={() => {
+            if (!user) setAuthModalOpen(true);
+            else setCurrentView('progress');
+          }}
+          className="flex items-center gap-2.5 overflow-hidden cursor-pointer group"
+          title={!user ? 'Click to Sign in' : 'View Progress'}
+        >
+          <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs group-hover:bg-teal-600 transition-colors">
             {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
           </div>
           {!sidebarCollapsed && (
             <div className="flex flex-col truncate">
-              <span className="text-xs font-bold text-slate-900 truncate">
+              <span className="text-xs font-bold text-slate-900 truncate group-hover:text-teal-700 transition-colors">
                 {user?.displayName || 'Guest Learner'}
               </span>
               <span className="text-[10px] text-teal-600 font-medium">
-                Band Target: {user?.targetBand || 7.5}
+                {user ? `Band Target: ${user.targetBand}` : 'Click to Sign In'}
               </span>
             </div>
           )}
