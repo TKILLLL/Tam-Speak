@@ -123,6 +123,8 @@ export class ResilientAIGateway implements IAIGateway {
     // Register Default Strategies
     this.registerStrategy(new GeminiProviderStrategy('gemini_pro', 'gemini-2.5-pro'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_flash', 'gemini-2.5-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash', 'gemini-2.0-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_flash', 'gemini-1.5-flash'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_flash_lite', 'gemini-2.5-flash-lite'));
     this.registerStrategy(new GroqProviderStrategy('llama-3.3-70b-versatile'));
     this.registerStrategy(new OpenRouterProviderStrategy('meta-llama/llama-3.3-70b-instruct:free'));
@@ -142,15 +144,15 @@ export class ResilientAIGateway implements IAIGateway {
   }
 
   public getPersonalKey(provider: 'gemini' | 'groq' | 'openrouter'): string | null {
-    if (this.personalKeys.has(provider)) {
-      return this.personalKeys.get(provider)!;
-    }
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = window.localStorage.getItem(`tamspeak_byok_${provider}`);
       if (stored && stored.trim().length > 0) {
         this.personalKeys.set(provider, stored.trim());
         return stored.trim();
       }
+    }
+    if (this.personalKeys.has(provider)) {
+      return this.personalKeys.get(provider)!;
     }
     return null;
   }
@@ -604,29 +606,32 @@ export class ResilientAIGateway implements IAIGateway {
       this.keyPools.get('gemini')?.keys[0];
 
     if (geminiKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const chat = ai.chats.create({
-          model: 'gemini-2.5-flash',
-          config: {
-            systemInstruction: rawSystemPrompt,
-            responseMimeType: 'application/json',
-            temperature: 0.85,
-          },
-          history: sdkHistory,
-        });
+      const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+      for (const modelName of candidateModels) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const chat = ai.chats.create({
+            model: modelName,
+            config: {
+              systemInstruction: rawSystemPrompt,
+              responseMimeType: 'application/json',
+              temperature: 0.85,
+            },
+            history: sdkHistory,
+          });
 
-        const resp = await chat.sendMessage({ message: finalUserInput });
-        const text = resp.text || '';
-        if (text.trim().length > 0) {
-          return this.parseSpeakingAIOutput(text, params.rawSttInput, 'gemini:@google/genai:gemini-2.5-flash');
+          const resp = await chat.sendMessage({ message: finalUserInput });
+          const text = resp.text || '';
+          if (text.trim().length > 0) {
+            return this.parseSpeakingAIOutput(text, params.rawSttInput, `gemini:@google/genai:${modelName}`);
+          }
+        } catch (geminiErr) {
+          console.warn(`Google GenAI direct chat attempt failed on model ${modelName}:`, geminiErr);
         }
-      } catch (geminiErr) {
-        console.warn('Google GenAI direct chat error, falling back to multi-provider chain:', geminiErr);
       }
     }
 
-    // 3. Secondary Fallback: Multi-Provider Gateway Chain (Gemini Pro, Flash, Groq, OpenRouter)
+    // 3. Secondary Fallback: Multi-Provider Gateway Chain (Direct REST Gemini, Groq, OpenRouter)
     try {
       const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
         role: turn.speaker === 'user' ? 'user' : 'assistant',
@@ -637,7 +642,14 @@ export class ResilientAIGateway implements IAIGateway {
         content: PromptSecurityGuard.isolateUserInput(params.rawSttInput),
       });
 
-      const providerChain = ['gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
+      const providerChain = [
+        'gemini_2_0_flash',
+        'gemini_flash',
+        'gemini_1_5_flash',
+        'gemini_flash_lite',
+        'groq',
+        'openrouter',
+      ];
       const { response, providerUsed } = await this.executeWithFallback(
         providerChain,
         PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt),
@@ -647,10 +659,19 @@ export class ResilientAIGateway implements IAIGateway {
       );
 
       return this.parseSpeakingAIOutput(response, params.rawSttInput, providerUsed);
-    } catch {
+    } catch (fallbackErr) {
       // ZERO MOCK RULE: Absolutely never return canned/simulated dialogue. Surface the technical error.
+      const errorDetail = (fallbackErr as Error).message || '';
+      const hasAnyKey = Boolean(geminiKey || this.getPersonalKey('groq') || this.getPersonalKey('openrouter'));
+
+      if (!hasAnyKey) {
+        throw new Error(
+          'Chưa tìm thấy API Key. Vui lòng vào mục "AI & Voice Settings" để nhập Google Gemini API Key của bạn.'
+        );
+      }
+
       throw new Error(
-        'Chưa cấu hình API Key hoặc kết nối AI thất bại. Vui lòng kiểm tra API Key (Google Gemini hoặc Groq) trong mục "AI & Voice Settings".'
+        `Lỗi kết nối AI: ${errorDetail}. Vui lòng kiểm tra lại API Key hoặc hạn mức Quota trong mục "AI & Voice Settings".`
       );
     }
   }

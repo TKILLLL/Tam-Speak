@@ -7,6 +7,20 @@ import { container } from './di/DIContainer';
 export const App: React.FC = () => {
   const { setUser } = useTamSpeakStore();
 
+  // Startup: Hydrate personal BYOK API keys from localStorage into AI Gateway
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const savedGemini = window.localStorage.getItem('tamspeak_byok_gemini');
+      if (savedGemini && savedGemini.trim().length > 0) {
+        container.aiGateway.setPersonalKey?.('gemini', savedGemini.trim());
+      }
+      const savedGroq = window.localStorage.getItem('tamspeak_byok_groq');
+      if (savedGroq && savedGroq.trim().length > 0) {
+        container.aiGateway.setPersonalKey?.('groq', savedGroq.trim());
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) {
       return;

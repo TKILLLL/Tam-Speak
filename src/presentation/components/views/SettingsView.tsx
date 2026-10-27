@@ -89,10 +89,17 @@ export const SettingsView: React.FC = () => {
         `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey.trim()}`
       );
       if (response.ok) {
+        // Auto-save immediately upon successful verification so user doesn't have to click a second button
+        const trimmedKey = geminiKey.trim();
+        window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
+        container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
+
         setGeminiTestStatus({
           state: 'valid',
-          message: 'Valid API Key! Sẵn sàng sử dụng Gemini 2.5 Flash không giới hạn.',
+          message: 'Valid API Key! Đã tự động kích hoạt và lưu vào Local Vault của bạn.',
         });
+        setStatusMessage('Đã tự động lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
+        setTimeout(() => setStatusMessage(null), 3500);
       } else {
         const errorData = await response.json().catch(() => ({}));
         setGeminiTestStatus({
@@ -112,8 +119,9 @@ export const SettingsView: React.FC = () => {
 
   const handleSaveGemini = () => {
     if (!geminiKey.trim()) return;
-    window.localStorage.setItem('tamspeak_byok_gemini', geminiKey.trim());
-    container.aiGateway.setPersonalKey?.('gemini', geminiKey.trim());
+    const trimmedKey = geminiKey.trim();
+    window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
+    container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
     setStatusMessage('Đã lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
     setTimeout(() => setStatusMessage(null), 3500);
   };
@@ -139,10 +147,17 @@ export const SettingsView: React.FC = () => {
         headers: { Authorization: `Bearer ${groqKey.trim()}` },
       });
       if (response.ok) {
+        // Auto-save immediately upon successful verification
+        const trimmedKey = groqKey.trim();
+        window.localStorage.setItem('tamspeak_byok_groq', trimmedKey);
+        container.aiGateway.setPersonalKey?.('groq', trimmedKey);
+
         setGroqTestStatus({
           state: 'valid',
-          message: 'Valid API Key! Sẵn sàng sử dụng Groq Llama 3.3 70B siêu tốc độ.',
+          message: 'Valid API Key! Đã tự động kích hoạt và lưu vào Local Vault của bạn.',
         });
+        setStatusMessage('Đã tự động lưu Groq API Key cá nhân vào Local Vault của bạn!');
+        setTimeout(() => setStatusMessage(null), 3500);
       } else {
         setGroqTestStatus({
           state: 'invalid',
@@ -159,8 +174,9 @@ export const SettingsView: React.FC = () => {
 
   const handleSaveGroq = () => {
     if (!groqKey.trim()) return;
-    window.localStorage.setItem('tamspeak_byok_groq', groqKey.trim());
-    container.aiGateway.setPersonalKey?.('groq', groqKey.trim());
+    const trimmedKey = groqKey.trim();
+    window.localStorage.setItem('tamspeak_byok_groq', trimmedKey);
+    container.aiGateway.setPersonalKey?.('groq', trimmedKey);
     setStatusMessage('Đã lưu Groq API Key cá nhân vào Local Vault của bạn!');
     setTimeout(() => setStatusMessage(null), 3500);
   };
@@ -260,8 +276,19 @@ export const SettingsView: React.FC = () => {
                 type={showGeminiKey ? 'text' : 'password'}
                 value={geminiKey}
                 onChange={(e) => {
-                  setGeminiKey(e.target.value);
+                  const val = e.target.value;
+                  setGeminiKey(val);
                   setGeminiTestStatus({ state: 'idle' });
+                  if (val.trim()) {
+                    window.localStorage.setItem('tamspeak_byok_gemini', val.trim());
+                    container.aiGateway.setPersonalKey?.('gemini', val.trim());
+                  }
+                }}
+                onBlur={() => {
+                  if (geminiKey.trim()) {
+                    window.localStorage.setItem('tamspeak_byok_gemini', geminiKey.trim());
+                    container.aiGateway.setPersonalKey?.('gemini', geminiKey.trim());
+                  }
                 }}
                 placeholder="AIzaSy..."
                 className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
@@ -348,8 +375,19 @@ export const SettingsView: React.FC = () => {
                 type={showGroqKey ? 'text' : 'password'}
                 value={groqKey}
                 onChange={(e) => {
-                  setGroqKey(e.target.value);
+                  const val = e.target.value;
+                  setGroqKey(val);
                   setGroqTestStatus({ state: 'idle' });
+                  if (val.trim()) {
+                    window.localStorage.setItem('tamspeak_byok_groq', val.trim());
+                    container.aiGateway.setPersonalKey?.('groq', val.trim());
+                  }
+                }}
+                onBlur={() => {
+                  if (groqKey.trim()) {
+                    window.localStorage.setItem('tamspeak_byok_groq', groqKey.trim());
+                    container.aiGateway.setPersonalKey?.('groq', groqKey.trim());
+                  }
                 }}
                 placeholder="gsk_..."
                 className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"

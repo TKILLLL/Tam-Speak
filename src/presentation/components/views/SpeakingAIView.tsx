@@ -75,6 +75,7 @@ export const SpeakingAIView: React.FC = () => {
     addEphemeralMessage,
     clearEphemeralMessages,
     addPronunciationMistake,
+    setCurrentView,
   } = useTamSpeakStore();
 
   const [isHolding, setIsHolding] = useState(false);
@@ -462,17 +463,25 @@ export const SpeakingAIView: React.FC = () => {
       <section className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         <div className="max-w-3xl w-full mx-auto space-y-4">
           {errorMessage && (
-            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center justify-between shadow-2xs">
-              <div className="flex items-center gap-2.5">
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center justify-between shadow-2xs gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                <span className="font-medium">{errorMessage}</span>
+                <span className="font-medium truncate">{errorMessage}</span>
               </div>
-              <button
-                onClick={() => setErrorMessage(null)}
-                className="text-red-500 hover:text-red-700 font-semibold px-2 py-0.5 rounded-md hover:bg-red-100 transition-colors shrink-0"
-              >
-                Đóng
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setCurrentView('settings')}
+                  className="bg-red-600 hover:bg-red-700 text-white font-semibold px-2.5 py-1 rounded-lg transition-colors text-[11px]"
+                >
+                  Mở Cài Đặt
+                </button>
+                <button
+                  onClick={() => setErrorMessage(null)}
+                  className="text-red-500 hover:text-red-700 font-semibold px-2 py-1 rounded-md hover:bg-red-100 transition-colors"
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
           )}
 
