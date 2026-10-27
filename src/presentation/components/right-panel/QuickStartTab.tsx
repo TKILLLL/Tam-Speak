@@ -7,11 +7,20 @@ import {
   ArrowLeft,
   PlusCircle,
 } from 'lucide-react';
-import { useTamSpeakStore } from '../../store';
+import { useTamSpeakStore, ActivePartType } from '../../store';
 import { CustomTopicBuilder } from './CustomTopicBuilder';
 import { container } from '../../../di/DIContainer';
 import { PracticeMode, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { SkillLevel } from '../../../domain/entities/User';
+
+const mapPresetToActivePart = (presetId: string, mode: string): ActivePartType => {
+  if (presetId === 'p1' || mode === 'ielts_part1') return 'part1';
+  if (presetId === 'p2' || mode === 'ielts_part2') return 'part2';
+  if (presetId === 'p3' || mode === 'ielts_part3') return 'part3';
+  if (presetId === 'mock' || mode === 'ielts_full_mock') return 'full_test';
+  if (mode === 'custom_roleplay') return 'roleplay';
+  return 'free_talk';
+};
 
 interface PresetCard {
   id: string;
@@ -116,6 +125,10 @@ export const QuickStartTab: React.FC = () => {
     setActiveTopic,
     setActiveSession,
     setLastAIMessage,
+    setCurrentExaminerPrompt,
+    setActivePart,
+    setActiveTopicTitle,
+    setPendingTargetConfig,
     setOrbState,
     user,
     dialogueTurns,
@@ -236,6 +249,12 @@ export const QuickStartTab: React.FC = () => {
       greeting = `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, hold [Space] and share your thoughts!`;
     }
 
+    const calculatedPart = mapPresetToActivePart(preset.id, mode);
+    setActivePart(calculatedPart);
+    setActiveTopicTitle(title);
+    setCurrentExaminerPrompt(greeting);
+    setLastAIMessage(greeting);
+
     // 7. Push initial greeting to dialogueTurns so Q&A displays it immediately
     const initialTurn: DialogueTurn = {
       id: `turn-ai-greeting-${Date.now()}`,
@@ -246,7 +265,6 @@ export const QuickStartTab: React.FC = () => {
     addDialogueTurn(initialTurn);
 
     // 8. Speak greeting & switch to Q&A
-    setLastAIMessage(greeting);
     setOrbState('speaking');
     setShowTopicPicker(false);
     setRightPanelTab('qna');
@@ -259,7 +277,16 @@ export const QuickStartTab: React.FC = () => {
 
   const handleStartPractice = (presetToUse?: PresetCard, topicTitle?: string) => {
     const preset = presetToUse || currentPreset;
+    const title = topicTitle || preset.title;
+    const part = mapPresetToActivePart(preset.id, preset.mode);
+
     if (dialogueTurns.length > 0) {
+      setPendingTargetConfig({
+        part,
+        topicTitle: title,
+        mode: preset.mode,
+        initialGreeting: '',
+      });
       openTopicChangeWarningModal(() => executeStartPractice(preset, topicTitle));
     } else {
       executeStartPractice(preset, topicTitle);

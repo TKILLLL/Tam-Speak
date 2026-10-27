@@ -7,10 +7,13 @@ import { WordLookupTooltip } from '../common/WordLookupTooltip';
 export const InteractiveTranscriptBox: React.FC = () => {
   const {
     lastAIMessage,
+    currentExaminerPrompt,
     isLastMessageHidden,
     toggleHideLastMessage,
     setOrbState,
   } = useTamSpeakStore();
+
+  const textToDisplay = currentExaminerPrompt || lastAIMessage;
 
   const [isPlayingReplay, setIsPlayingReplay] = useState(false);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
@@ -25,7 +28,7 @@ export const InteractiveTranscriptBox: React.FC = () => {
     } else {
       setIsPlayingReplay(true);
       setOrbState('speaking');
-      container.speechTTSEngine.speak(lastAIMessage, {
+      container.speechTTSEngine.speak(textToDisplay, {
         onEnd: () => {
           setIsPlayingReplay(false);
           setOrbState('idle');
@@ -137,7 +140,7 @@ export const InteractiveTranscriptBox: React.FC = () => {
             </div>
           ) : (
             <p className="text-slate-800 text-sm leading-relaxed font-normal selection:bg-teal-100 selection:text-teal-900 cursor-text">
-              {lastAIMessage}
+              {textToDisplay}
             </p>
           )}
         </div>

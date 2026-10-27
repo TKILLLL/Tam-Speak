@@ -262,7 +262,7 @@ async function runPhase3Tests(): Promise<void> {
   assert(container.evaluateSpeechUseCase !== undefined, 'evaluateSpeechUseCase resolved');
   assert(container.chatRoleplayUseCase !== undefined, 'chatRoleplayUseCase resolved');
 
-  console.log('✅ ALL PHASE 3 AUDIO, 0-TOKEN & USE CASES TESTS PASSED WITH 100% SUCCESS!');
+  console.log('[SUCCESS] ALL PHASE 3 AUDIO, 0-TOKEN & USE CASES TESTS PASSED WITH 100% SUCCESS!');
 }
 
 runPhase3Tests().catch((err) => {

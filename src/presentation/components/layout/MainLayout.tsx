@@ -30,6 +30,7 @@ export const MainLayout: React.FC = () => {
     topicChangeWarningModalOpen,
     closeTopicChangeWarningModal,
     pendingTopicSwitch,
+    confirmTopicSwitch,
   } = useTamSpeakStore();
 
   const handleConfirmReveal = () => {
@@ -42,6 +43,7 @@ export const MainLayout: React.FC = () => {
   };
 
   const handleConfirmTopicChange = () => {
+    confirmTopicSwitch();
     if (pendingTopicSwitch) {
       pendingTopicSwitch();
     }

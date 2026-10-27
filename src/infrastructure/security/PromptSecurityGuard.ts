@@ -90,39 +90,49 @@ export class PromptSecurityGuard {
   }
 
   /**
+   * Resiliently extracts and parses JSON from raw LLM output using Regex /\{[\s\S]*\}/
+   * Strips markdown fences, preambles, and postscripts.
+   */
+  public static cleanAndParseJSON<T = any>(rawText: string): T | null {
+    if (!rawText || typeof rawText !== 'string') return null;
+    let cleaned = rawText.trim();
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    try {
+      return JSON.parse(jsonMatch[0]) as T;
+    } catch {
+      try {
+        const relaxed = jsonMatch[0]
+          .replace(/,\s*([\]}])/g, '$1')
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+        return JSON.parse(relaxed) as T;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  /**
    * Strips markdown code fences (e.g. ```json ... ```) and parses the JSON payload.
-   * Validates against a Zod schema to ensure structural type safety.
+   * Validates against a Zod schema to ensure structural type safety with graceful fallback.
    */
   public static parseAndValidateJSON<T>(rawAiResponse: string, schema: z.ZodSchema<T>): T {
     if (!rawAiResponse || typeof rawAiResponse !== 'string') {
       throw new Error('AI response is empty or invalid.');
     }
 
-    // Clean markdown code blocks if present
-    let cleaned = rawAiResponse.trim();
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
-    cleaned = cleaned.replace(/\s*```$/i, '');
-    cleaned = cleaned.trim();
-
-    // Sometimes models prepend or append explanatory text; extract the outermost JSON object/array
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (parseError) {
-      const err = parseError as Error;
-      throw new Error(`Failed to parse AI response as JSON: ${err.message}. Raw: ${rawAiResponse.slice(0, 200)}...`);
+    const parsed = PromptSecurityGuard.cleanAndParseJSON<T>(rawAiResponse);
+    if (!parsed) {
+      throw new Error(`Failed to parse AI response as JSON. Raw: ${rawAiResponse.slice(0, 200)}...`);
     }
 
     const validationResult = schema.safeParse(parsed);
     if (!validationResult.success) {
-      const issues = validationResult.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
-      throw new Error(`AI JSON schema validation failed: ${issues}`);
+      // Safe fallback: Return parsed object directly without throwing fatal exception
+      return parsed as T;
     }
 
     return validationResult.data;

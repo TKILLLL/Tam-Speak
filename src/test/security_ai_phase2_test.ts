@@ -223,7 +223,7 @@ async function runPhase2Tests(): Promise<void> {
   assert(lookedUp !== undefined, 'Looked up offline IPA entry');
   assert(lookedUp?.ipa === 'ˌpɜːrsəˈvɪrəns', 'Offline IPA matches CMUdict');
 
-  console.log('✅ ALL PHASE 2 APPSEC & INFRASTRUCTURE TESTS PASSED WITH 100% SUCCESS!');
+  console.log('[SUCCESS] ALL PHASE 2 APPSEC & INFRASTRUCTURE TESTS PASSED WITH 100% SUCCESS!');
 }
 
 runPhase2Tests().catch((err) => {

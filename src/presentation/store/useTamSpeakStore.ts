@@ -17,6 +17,15 @@ export type RightPanelTab = 'quick_start' | 'qna' | 'scoring' | 'vocab_hints';
 
 export type OrbState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
+export type ActivePartType = 'part1' | 'part2' | 'part3' | 'full_test' | 'roleplay' | 'free_talk';
+
+export interface PendingTargetConfig {
+  part: ActivePartType;
+  topicTitle: string;
+  mode: string;
+  initialGreeting: string;
+}
+
 export interface MistakeItem {
   id: string;
   word: string;
@@ -110,20 +119,33 @@ export interface TamSpeakState {
   // Interactive Transcript & Audio Controls
   lastAIMessage: string;
   setLastAIMessage: (message: string) => void;
+  currentExaminerPrompt: string;
+  setCurrentExaminerPrompt: (prompt: string) => void;
   isLastMessageHidden: boolean;
   toggleHideLastMessage: () => void;
   setIsLastMessageHidden: (hidden: boolean) => void;
   isAutoVadEnabled: boolean;
   toggleAutoVad: () => void;
 
-  // Active Practice & Dialogue
+  // Active Practice & Dialogue (Single Source of Truth)
+  activePart: ActivePartType;
+  setActivePart: (part: ActivePartType) => void;
+  activeTopicTitle: string;
+  setActiveTopicTitle: (title: string) => void;
   activeSession: PracticeSessionDTO | null;
   setActiveSession: (session: PracticeSessionDTO | null) => void;
   activeTopic: CustomTopicDTO | null;
   setActiveTopic: (topic: CustomTopicDTO | null) => void;
   dialogueTurns: DialogueTurn[];
+  messages: DialogueTurn[];
   addDialogueTurn: (turn: DialogueTurn) => void;
   clearDialogueTurns: () => void;
+
+  // Topic Switch & Synchronization
+  pendingTargetConfig: PendingTargetConfig | null;
+  setPendingTargetConfig: (config: PendingTargetConfig | null) => void;
+  requestTopicSwitch: (config: PendingTargetConfig) => void;
+  confirmTopicSwitch: () => void;
 
   // Interactive Reveal & Penalty System
   hasShownRevealWarningInSession: boolean;
@@ -196,22 +218,123 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setIsFallbackActive: (isFallbackActive) => set({ isFallbackActive }),
 
   // Interactive Transcript
-  lastAIMessage: 'Hello! Welcome to TamSpeak. I am your AI Speaking Examiner. Press and hold Space to begin speaking!',
+  lastAIMessage:
+    'Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today we will talk about your daily life and hometown. Could you please introduce yourself?',
   setLastAIMessage: (message) => set({ lastAIMessage: message }),
+  currentExaminerPrompt:
+    'Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today we will talk about your daily life and hometown. Could you please introduce yourself?',
+  setCurrentExaminerPrompt: (prompt) => set({ currentExaminerPrompt: prompt, lastAIMessage: prompt }),
   isLastMessageHidden: false,
   toggleHideLastMessage: () => set((state) => ({ isLastMessageHidden: !state.isLastMessageHidden })),
   setIsLastMessageHidden: (hidden) => set({ isLastMessageHidden: hidden }),
   isAutoVadEnabled: false,
   toggleAutoVad: () => set((state) => ({ isAutoVadEnabled: !state.isAutoVadEnabled })),
 
-  // Active Practice & Dialogue
+  // Active Practice & Dialogue (Single Source of Truth)
+  activePart: 'part1',
+  setActivePart: (activePart) => set({ activePart }),
+  activeTopicTitle: 'Part 1: Introduction & Interview',
+  setActiveTopicTitle: (activeTopicTitle) => set({ activeTopicTitle }),
   activeSession: null,
   setActiveSession: (session) => set({ activeSession: session }),
   activeTopic: null,
   setActiveTopic: (topic) => set({ activeTopic: topic }),
   dialogueTurns: [],
-  addDialogueTurn: (turn) => set((state) => ({ dialogueTurns: [...state.dialogueTurns, turn] })),
-  clearDialogueTurns: () => set({ dialogueTurns: [] }),
+  messages: [],
+  addDialogueTurn: (turn) =>
+    set((state) => ({
+      dialogueTurns: [...state.dialogueTurns, turn],
+      messages: [...state.messages, turn],
+    })),
+  clearDialogueTurns: () => set({ dialogueTurns: [], messages: [] }),
+
+  // Topic Switch & Synchronization
+  pendingTargetConfig: null,
+  setPendingTargetConfig: (pendingTargetConfig) => set({ pendingTargetConfig }),
+  requestTopicSwitch: (config: PendingTargetConfig) => {
+    if (get().dialogueTurns.length > 0) {
+      set({ pendingTargetConfig: config, topicChangeWarningModalOpen: true });
+    } else {
+      set({ pendingTargetConfig: config });
+      get().confirmTopicSwitch();
+    }
+  },
+  confirmTopicSwitch: () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // noop
+      }
+    }
+
+    const config = get().pendingTargetConfig;
+    if (!config) {
+      set({ topicChangeWarningModalOpen: false });
+      return;
+    }
+
+    // Preserve errors into Pronunciation Lab
+    get().dialogueTurns.forEach((turn) => {
+      turn.mistakes?.forEach((m) => {
+        get().addPronunciationMistake({
+          word: m.word,
+          ipa: m.ipa,
+          contextSentence: turn.text,
+          errorReason: m.reason || 'Phonetic friction',
+          suggestedAlternative: m.suggestedAlternative || '',
+          topicTitle: get().activeTopicTitle || 'IELTS Speaking',
+        });
+      });
+    });
+
+    const initialGreeting =
+      config.initialGreeting ||
+      `Welcome to ${config.topicTitle}. When you are ready, press and hold Space to speak!`;
+
+    const initialTurn: DialogueTurn = {
+      id: `turn-ai-init-${Date.now()}`,
+      speaker: 'ai',
+      text: initialGreeting,
+      timestampSeconds: 0,
+    };
+
+    set({
+      activePart: config.part,
+      activeTopicTitle: config.topicTitle,
+      practiceMode: (config.mode as any) || get().practiceMode,
+      currentExaminerPrompt: initialGreeting,
+      lastAIMessage: initialGreeting,
+      dialogueTurns: [initialTurn],
+      messages: [initialTurn],
+      activeSession: null,
+      topicChangeWarningModalOpen: false,
+      pendingTargetConfig: null,
+      pendingTopicSwitch: null,
+      orbState: 'speaking',
+    });
+
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        const utterance = new SpeechSynthesisUtterance(initialGreeting);
+        utterance.lang = 'en-US';
+        utterance.rate = 0.95;
+        utterance.onend = () => {
+          if (get().orbState === 'speaking') {
+            set({ orbState: 'idle' });
+          }
+        };
+        utterance.onerror = () => {
+          set({ orbState: 'idle' });
+        };
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        set({ orbState: 'idle' });
+      }
+    } else {
+      set({ orbState: 'idle' });
+    }
+  },
 
   // Interactive Reveal & Penalty System
   hasShownRevealWarningInSession: false,
@@ -250,7 +373,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   topicChangeWarningModalOpen: false,
   pendingTopicSwitch: null,
   openTopicChangeWarningModal: (onConfirm: () => void) =>
-    set({ topicChangeWarningModalOpen: true, pendingTopicSwitch: () => onConfirm }),
+    set({ topicChangeWarningModalOpen: true, pendingTopicSwitch: onConfirm }),
   closeTopicChangeWarningModal: () =>
     set({ topicChangeWarningModalOpen: false, pendingTopicSwitch: null }),
 

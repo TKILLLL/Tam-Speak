@@ -197,4 +197,4 @@ user.recordPracticeSession(600, new Date('2026-10-26T10:00:00Z'));
 assert(user.streakDays === 2, 'Consecutive day streak is 2');
 assert(user.totalPracticeMinutes === 15, 'Total minutes aggregated (5 + 10 = 15)');
 
-console.log('✅ ALL PHASE 1 DOMAIN TESTS PASSED WITH 100% SUCCESS!');
+console.log('[SUCCESS] ALL PHASE 1 DOMAIN TESTS PASSED WITH 100% SUCCESS!');
