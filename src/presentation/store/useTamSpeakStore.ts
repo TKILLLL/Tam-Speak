@@ -267,10 +267,10 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
 
   // Interactive Transcript
   lastAIMessage:
-    'Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today we will talk about your daily life and hometown. Could you please introduce yourself?',
+    'Welcome to TamSpeak. Choose a topic from Quick Start and press and hold Space to begin speaking!',
   setLastAIMessage: (message) => set({ lastAIMessage: message }),
   currentExaminerPrompt:
-    'Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today we will talk about your daily life and hometown. Could you please introduce yourself?',
+    'Welcome to TamSpeak. Choose a topic from Quick Start and press and hold Space to begin speaking!',
   setCurrentExaminerPrompt: (prompt) => set({ currentExaminerPrompt: prompt, lastAIMessage: prompt }),
   isLastMessageHidden: false,
   toggleHideLastMessage: () => set((state) => ({ isLastMessageHidden: !state.isLastMessageHidden })),

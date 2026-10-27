@@ -258,8 +258,8 @@ export const HoldSpaceToTalk: React.FC = () => {
       // Safe fallback
     }
 
-    // High-Precision Hybrid Live STT Verification via Groq Whisper / Gemini Audio
-    if (recResult?.blob && container.aiGateway.transcribeAudio) {
+    // High-Precision Hybrid Fallback: Only call multimodal transcription if WebSpeech STT was empty
+    if (!spokenTranscript.trim() && recResult?.blob && container.aiGateway.transcribeAudio) {
       try {
         const verifiedTranscript = await container.aiGateway.transcribeAudio(
           recResult.blob,
@@ -269,7 +269,7 @@ export const HoldSpaceToTalk: React.FC = () => {
           spokenTranscript = verifiedTranscript.trim();
         }
       } catch (err) {
-        console.warn('Audio verification fallback to WebSpeech STT:', err);
+        console.warn('Audio transcription fallback notice:', err);
       }
     }
 
@@ -434,19 +434,7 @@ export const HoldSpaceToTalk: React.FC = () => {
         setRightPanelTab('qna');
       }
 
-      // 10. Background refresh Vocab Hints for the next question
-      setIsLoadingVocabHints(true);
-      aiService
-        .generateVocabHints(topicName, turnResult.nextQuestion)
-        .then((hints) => {
-          setAiVocabHints(hints);
-          setIsLoadingVocabHints(false);
-        })
-        .catch(() => {
-          setIsLoadingVocabHints(false);
-        });
-
-      // 11. Speak AI reply via TTS
+      // 10. Speak AI reply via TTS
       container.speechTTSEngine.speak(replyText, {
         onEnd: () => setOrbState('idle'),
         onError: () => setOrbState('idle'),

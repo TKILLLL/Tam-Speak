@@ -7,12 +7,12 @@ export const DEFAULT_GEMINI_FALLBACK_KEY =
     : Buffer.from('QVEuQWI4Uk42SXJYUk9uWmUyd1JOTUluOGdUc211dlAxWFNmRVZXaHZ4UDhqWFZ6VEhfOWc=', 'base64').toString('utf-8');
 
 export const GEMINI_MODELS_FALLBACK_CHAIN = [
-  'gemini-flash-latest',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-2.5-pro',
   'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
+  'gemini-2.5-pro',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
@@ -57,6 +57,7 @@ export interface PlacementTestResult {
  */
 export class AIService {
   private activeModelIndex = 0;
+  private vocabHintsCache = new Map<string, GeneratedVocabHints>();
 
   /**
    * Retrieves active Gemini API Key:
@@ -80,19 +81,21 @@ export class AIService {
   }
 
   public getCurrentModel(): GeminiModelName {
-    return GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex] || 'gemini-flash-latest';
+    return GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex] || 'gemini-2.5-flash';
   }
 
   /**
    * Low-level resilient REST caller with automatic model fallback on 429, 503, 404
+   * Optimized with 10s per-model timeout and configurable maxOutputTokens
    */
   public async generateContent(params: {
     systemPrompt: string;
     messages: ChatMessage[];
     temperature?: number;
     jsonMode?: boolean;
+    maxOutputTokens?: number;
   }): Promise<string> {
-    const { systemPrompt, messages, temperature = 0.7, jsonMode = false } = params;
+    const { systemPrompt, messages, temperature = 0.6, jsonMode = false, maxOutputTokens = 512 } = params;
     const apiKey = this.getActiveApiKey();
 
     // Prepare contents array for Gemini REST
@@ -123,7 +126,7 @@ export class AIService {
       },
       generationConfig: {
         temperature,
-        maxOutputTokens: 2048,
+        maxOutputTokens,
         responseMimeType: jsonMode ? 'application/json' : 'text/plain',
       },
     };
@@ -136,6 +139,9 @@ export class AIService {
       const modelName = GEMINI_MODELS_FALLBACK_CHAIN[modelIndex]!;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
+      const controller = new AbortController();
+      const timeoutTimer = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+
       try {
         const response = await fetch(url, {
           method: 'POST',
@@ -144,7 +150,10 @@ export class AIService {
             'X-goog-api-key': apiKey,
           },
           body: JSON.stringify(requestPayload),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutTimer);
 
         // If rate limit (429), temporary service overload (503), or model unavailable (404): rotate to next model
         if (response.status === 429 || response.status === 503 || response.status === 404) {
@@ -170,8 +179,10 @@ export class AIService {
         this.activeModelIndex = modelIndex;
         useTamSpeakStore.getState().setActiveAIProvider(modelName);
         return text.trim();
-      } catch (err) {
-        errors.push(`${modelName}: ${(err as Error).message}`);
+      } catch (err: any) {
+        clearTimeout(timeoutTimer);
+        const errMsg = err?.name === 'AbortError' ? 'Timeout (10s)' : (err as Error).message;
+        errors.push(`${modelName}: ${errMsg}`);
         // If not the last model in chain, try next model
         this.activeModelIndex = (modelIndex + 1) % GEMINI_MODELS_FALLBACK_CHAIN.length;
         useTamSpeakStore.getState().setActiveAIProvider(GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex]!);
@@ -199,8 +210,14 @@ export class AIService {
 
   /**
    * Dynamic Vocab Hints: Generates Band 7.5-8.5 keywords, collocations & idioms tailored to topic + question
+   * Features in-memory caching for sub-millisecond tab switching
    */
   public async generateVocabHints(topicTitle: string, currentQuestion: string): Promise<GeneratedVocabHints> {
+    const cacheKey = topicTitle.trim().toLowerCase();
+    if (this.vocabHintsCache.has(cacheKey)) {
+      return this.vocabHintsCache.get(cacheKey)!;
+    }
+
     const systemPrompt = `You are an elite IELTS Speaking Cambridge Lexical Expert.
 Generate high-scoring Band 7.5 - 8.5 vocabulary hints specifically tailored to the topic and current discussion question.
 
@@ -240,8 +257,9 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
       const raw = await this.generateContent({
         systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        temperature: 0.6,
+        temperature: 0.5,
         jsonMode: true,
+        maxOutputTokens: 600,
       });
 
       const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
@@ -249,6 +267,10 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         collocations: [],
         idioms: [],
       });
+
+      if (parsed.activeKeywords?.length > 0) {
+        this.vocabHintsCache.set(cacheKey, parsed);
+      }
 
       return parsed;
     } catch (err) {
@@ -318,8 +340,9 @@ Generate JSON evaluation and transition now.`;
       const raw = await this.generateContent({
         systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        temperature: 0.7,
+        temperature: 0.6,
         jsonMode: true,
+        maxOutputTokens: 400,
       });
 
       const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
@@ -376,6 +399,7 @@ Return ONLY valid JSON:
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.3,
         jsonMode: true,
+        maxOutputTokens: 450,
       });
 
       const parsed = this.cleanAndParseJson<PlacementTestResult>(raw, {

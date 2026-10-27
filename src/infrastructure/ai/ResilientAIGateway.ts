@@ -115,13 +115,13 @@ export class ResilientAIGateway implements IAIGateway {
       geminiKeys?: string[];
     }
   ) {
-    // Register Official Gemini Models in priority order
-    this.registerStrategy(new GeminiProviderStrategy('gemini_flash_latest', 'gemini-flash-latest'));
+    // Register Official Gemini Models in priority order (ultra-fast flash first)
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash', 'gemini-2.5-flash'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash_lite', 'gemini-2.5-flash-lite'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash', 'gemini-2.0-flash'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash_lite', 'gemini-2.0-flash-lite'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_flash', 'gemini-1.5-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
 
     // Initialize Key Pool with default fallback key
     const initialKeys = customKeyConfig?.geminiKeys && customKeyConfig.geminiKeys.length > 0
@@ -201,7 +201,7 @@ export class ResilientAIGateway implements IAIGateway {
     try {
       const base64Audio = await this.blobToBase64(audioBlob);
       const mimeType = audioBlob.type || 'audio/webm';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -373,12 +373,12 @@ export class ResilientAIGateway implements IAIGateway {
     ];
 
     const providerChain = [
-      'gemini_flash_latest',
       'gemini_2_5_flash',
       'gemini_2_5_flash_lite',
-      'gemini_2_5_pro',
       'gemini_2_0_flash',
       'gemini_2_0_flash_lite',
+      'gemini_1_5_flash',
+      'gemini_2_5_pro',
     ];
 
     const { response, providerUsed } = await this.executeWithFallback(
@@ -428,12 +428,12 @@ export class ResilientAIGateway implements IAIGateway {
     });
 
     const providerChain = [
-      'gemini_flash_latest',
       'gemini_2_5_flash',
       'gemini_2_5_flash_lite',
-      'gemini_2_5_pro',
       'gemini_2_0_flash',
       'gemini_2_0_flash_lite',
+      'gemini_1_5_flash',
+      'gemini_2_5_pro',
     ];
 
     try {
@@ -493,12 +493,12 @@ export class ResilientAIGateway implements IAIGateway {
     });
 
     const providerChain = [
-      'gemini_flash_latest',
       'gemini_2_5_flash',
       'gemini_2_5_flash_lite',
-      'gemini_2_5_pro',
       'gemini_2_0_flash',
       'gemini_2_0_flash_lite',
+      'gemini_1_5_flash',
+      'gemini_2_5_pro',
     ];
 
     try {
@@ -600,12 +600,12 @@ export class ResilientAIGateway implements IAIGateway {
     ];
 
     const providerChain = [
-      'gemini_flash_latest',
       'gemini_2_5_flash',
       'gemini_2_5_flash_lite',
-      'gemini_2_5_pro',
       'gemini_2_0_flash',
       'gemini_2_0_flash_lite',
+      'gemini_1_5_flash',
+      'gemini_2_5_pro',
     ];
 
     const { response } = await this.executeWithFallback(

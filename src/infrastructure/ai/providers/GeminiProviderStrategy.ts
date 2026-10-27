@@ -48,13 +48,13 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
       },
       generationConfig: {
         temperature,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 600,
         responseMimeType: jsonMode ? 'application/json' : 'text/plain',
       },
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25_000); // 25s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10_000); // 10s fast timeout for speech response
 
     try {
       const response = await fetch(url, {

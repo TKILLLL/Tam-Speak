@@ -219,8 +219,8 @@ export const SpeakingAIView: React.FC = () => {
       // safe fallback
     }
 
-    // High-Precision Hybrid Live STT Verification
-    if (recResult?.blob && container.aiGateway.transcribeAudio) {
+    // High-Precision Hybrid Fallback: Only call multimodal transcription if WebSpeech STT was empty
+    if (!spokenTranscript.trim() && recResult?.blob && container.aiGateway.transcribeAudio) {
       try {
         const verified = await container.aiGateway.transcribeAudio(
           recResult.blob,
