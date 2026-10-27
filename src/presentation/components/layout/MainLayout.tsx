@@ -10,11 +10,15 @@ import { SettingsView } from '../views/SettingsView';
 import { RawDataStudioView } from '../views/RawDataStudioView';
 import { ProgressDashboardView } from '../views/ProgressDashboardView';
 import { PronunciationLabView } from '../views/PronunciationLabView';
-import { SlidersHorizontal, AlertTriangle, AlertCircle, RefreshCw } from 'lucide-react';
+import { ProfileView } from '../views/ProfileView';
+import { SlidersHorizontal, AlertTriangle, AlertCircle, RefreshCw, PanelRightOpen } from 'lucide-react';
 
 export const MainLayout: React.FC = () => {
   const {
     currentView,
+    rightPanelCollapsed,
+    setRightPanelCollapsed,
+    dialogueTurns,
     setRightPanelOpenMobile,
     penaltyToastMessage,
     revealWarningModalOpen,
@@ -63,6 +67,8 @@ export const MainLayout: React.FC = () => {
         );
       case 'progress':
         return <ProgressDashboardView />;
+      case 'profile':
+        return <ProfileView />;
       default:
         return <VoiceStage />;
     }
@@ -82,20 +88,41 @@ export const MainLayout: React.FC = () => {
         <main className="flex-1 flex overflow-hidden relative">
           {renderCurrentView()}
 
-          {/* Floating Mobile Panel Toggle Button */}
-          <button
-            onClick={() => setRightPanelOpenMobile(true)}
-            className="lg:hidden absolute bottom-5 right-5 z-30 p-3 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-transform active:scale-95"
-            title="Open Controls & Q&A"
-          >
-            <SlidersHorizontal className="w-5 h-5" />
-          </button>
+          {/* Floating Mobile Panel Toggle Button (Only in conversation practice) */}
+          {currentView === 'conversation' && (
+            <button
+              onClick={() => setRightPanelOpenMobile(true)}
+              className="lg:hidden absolute bottom-5 right-5 z-30 p-3 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-transform active:scale-95"
+              title="Open Controls & Q&A"
+            >
+              <SlidersHorizontal className="w-5 h-5" />
+            </button>
+          )}
         </main>
 
-        {/* Right Column: Contextual Floating Panel (4 Tabs) */}
-        <div className="p-4 pl-0 hidden lg:block">
-          <RightControlPanel />
-        </div>
+        {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
+        {currentView === 'conversation' && !rightPanelCollapsed && (
+          <div className="p-4 pl-0 hidden lg:block">
+            <RightControlPanel />
+          </div>
+        )}
+
+        {/* Floating Expand Button for Right Panel when Collapsed */}
+        {currentView === 'conversation' && rightPanelCollapsed && (
+          <button
+            onClick={() => setRightPanelCollapsed(false)}
+            title="Mở bảng điều khiển"
+            className="hidden lg:flex fixed top-20 right-6 z-30 items-center gap-2 px-3.5 py-2 bg-white/95 hover:bg-white text-slate-700 rounded-2xl shadow-md border border-slate-200 backdrop-blur-md transition-all hover:scale-105 active:scale-95"
+          >
+            <PanelRightOpen className="w-4 h-4 text-teal-600" />
+            <span className="text-xs font-bold text-slate-700">Mở bảng điều khiển</span>
+            {dialogueTurns.length > 0 && (
+              <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {dialogueTurns.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Global Auth Modal */}
@@ -118,7 +145,7 @@ export const MainLayout: React.FC = () => {
             </div>
             <div className="text-center space-y-1">
               <h3 className="text-sm font-bold text-slate-900">
-                ⚠️ Cảnh báo giảm điểm phản xạ
+                Cảnh báo giảm điểm phản xạ
               </h3>
               <p className="text-xs text-slate-500 leading-relaxed">
                 Việc mở xem văn bản của AI sẽ làm giảm điểm kỹ năng Nghe & Phản xạ <span className="font-bold text-rose-600">(-0.5 điểm)</span> trong phiên luyện tập này. Bạn có chắc chắn muốn xem?
@@ -154,13 +181,13 @@ export const MainLayout: React.FC = () => {
             </div>
             <div className="text-center space-y-1.5">
               <h3 className="text-sm font-bold text-slate-900">
-                🔄 Chuyển chủ đề / IELTS Part mới?
+                Chuyển chủ đề / IELTS Part mới
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Toàn bộ lịch sử trò chuyện và điểm số của phiên hiện tại sẽ được làm mới để bắt đầu phiên mới.
               </p>
               <div className="p-2.5 bg-emerald-50 text-emerald-800 text-[11px] rounded-xl border border-emerald-100 font-medium text-left">
-                💡 <span className="font-bold">Yên tâm:</span> Toàn bộ các từ và câu bạn phát âm sai trong chủ đề này đã được lưu an toàn vào mục <span className="font-bold underline">Pronunciation & IPA Lab</span>.
+                <span className="font-bold">Lưu ý:</span> Toàn bộ các từ và câu bạn phát âm sai trong chủ đề này đã được lưu an toàn vào mục <span className="font-bold underline">Pronunciation & IPA Lab</span>.
               </div>
             </div>
             <div className="flex items-center gap-2 pt-2">

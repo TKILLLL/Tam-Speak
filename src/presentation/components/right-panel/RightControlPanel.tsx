@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, MessageSquare, Award, BookOpen, Maximize2, Minimize2, X } from 'lucide-react';
+import { Layers, MessageSquare, Award, BookOpen, Maximize2, Minimize2, X, ChevronRight } from 'lucide-react';
 import { useTamSpeakStore, RightPanelTab } from '../../store';
 import { QuickStartTab } from './QuickStartTab';
 import { QnATab } from './QnATab';
@@ -12,6 +12,7 @@ export const RightControlPanel: React.FC = () => {
     setRightPanelTab,
     rightPanelExpanded,
     setRightPanelExpanded,
+    setRightPanelCollapsed,
     rightPanelOpenMobile,
     setRightPanelOpenMobile,
   } = useTamSpeakStore();
@@ -68,10 +69,19 @@ export const RightControlPanel: React.FC = () => {
           {/* Desktop Expand / Contract Button */}
           <button
             onClick={() => setRightPanelExpanded(!rightPanelExpanded)}
-            title={rightPanelExpanded ? 'Contract Panel' : 'Expand Panel'}
+            title={rightPanelExpanded ? 'Contract Width' : 'Expand Width'}
             className="hidden lg:flex p-2 rounded-xl border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors shrink-0"
           >
             {rightPanelExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Desktop Collapse Panel Button */}
+          <button
+            onClick={() => setRightPanelCollapsed(true)}
+            title="Thu gọn bảng điều khiển"
+            className="hidden lg:flex p-2 rounded-xl border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors shrink-0"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
 
           {/* Mobile Close Button */}

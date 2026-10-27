@@ -105,6 +105,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     setRightPanelTab,
     addDialogueTurn,
     addPronunciationMistake,
+    setLiveSpeechTranscript,
   } = useTamSpeakStore();
 
   const [isHolding, setIsHolding] = useState(false);
@@ -197,9 +198,12 @@ export const HoldSpaceToTalk: React.FC = () => {
 
       // 5. Start Web Speech STT
       transcriptBufferRef.current = '';
+      setLiveSpeechTranscript('');
       container.speechSTTEngine.start({
         onUpdate: (finalText, interimText) => {
-          transcriptBufferRef.current = `${finalText} ${interimText}`.trim();
+          const combined = `${finalText} ${interimText}`.trim();
+          transcriptBufferRef.current = combined;
+          setLiveSpeechTranscript(combined);
         },
         onError: (err) => {
           console.warn('Speech recognition warning:', err);
@@ -210,11 +214,12 @@ export const HoldSpaceToTalk: React.FC = () => {
       setOrbState('idle');
       setIsHolding(false);
       isHoldingRef.current = false;
+      setLiveSpeechTranscript('');
       if (err?.name === 'NotAllowedError' || err?.message?.toLowerCase().includes('permission')) {
-        alert('⚠️ Quyền Microphone bị từ chối. Vui lòng cấp quyền truy cập Microphone trên thanh địa chỉ trình duyệt để luyện nói.');
+        alert('Microphone permission was denied. Please allow microphone access in your browser settings to practice speaking.');
       }
     }
-  }, [activeSession, activeTopic, audioAnalyzer, setActiveSession, setActiveTopic, setOrbState, user]);
+  }, [activeSession, activeTopic, audioAnalyzer, setActiveSession, setActiveTopic, setLiveSpeechTranscript, setOrbState, user]);
 
   const stopVoiceInput = useCallback(async () => {
     if (!isHoldingRef.current) return;
@@ -223,7 +228,8 @@ export const HoldSpaceToTalk: React.FC = () => {
     setOrbState('thinking');
 
     // 1. Stop Speech-to-Text
-    const spokenTranscript = container.speechSTTEngine.stop() || transcriptBufferRef.current;
+    let spokenTranscript = container.speechSTTEngine.stop() || transcriptBufferRef.current;
+    setLiveSpeechTranscript('');
 
     // 2. Stop Audio Analyzer & calculate WPM
     const wordCount = spokenTranscript.split(/\s+/).filter(Boolean).length;
@@ -233,14 +239,30 @@ export const HoldSpaceToTalk: React.FC = () => {
     const userId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
     const sessionId = activeSession?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`);
 
+    let recResult: { recordingId: string; blob: Blob; mimeType: string; durationSeconds: number } | null = null;
     try {
-      await container.audioRecorderEngine.stop(userId, sessionId);
+      recResult = await container.audioRecorderEngine.stop(userId, sessionId);
     } catch {
       // Safe fallback
     }
 
+    // High-Precision Hybrid Live STT Verification via Groq Whisper / Gemini Audio
+    if (recResult?.blob && container.aiGateway.transcribeAudio) {
+      try {
+        const verifiedTranscript = await container.aiGateway.transcribeAudio(
+          recResult.blob,
+          activeTopic?.title || 'English speaking practice'
+        );
+        if (verifiedTranscript && verifiedTranscript.trim().length > 0) {
+          spokenTranscript = verifiedTranscript.trim();
+        }
+      } catch (err) {
+        console.warn('Audio verification fallback to WebSpeech STT:', err);
+      }
+    }
+
     if (!spokenTranscript.trim()) {
-      setLastAIMessage("I couldn't hear you clearly. Please press and hold [Space] while speaking into your microphone!");
+      setLastAIMessage("Could not detect clear speech. Please hold the Space bar while speaking into your microphone.");
       setOrbState('idle');
       return;
     }
@@ -276,12 +298,18 @@ export const HoldSpaceToTalk: React.FC = () => {
       }
     });
 
+    const audioUrl = recResult?.blob ? URL.createObjectURL(recResult.blob) : undefined;
+    const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);
+
     // 5. Append User Dialogue Turn to Session Store
     const userTurn: DialogueTurn = {
       id: `turn-user-${Date.now()}`,
       speaker: 'user',
       text: spokenTranscript,
-      timestampSeconds: Math.round(analyzerStats.durationSeconds),
+      timestampSeconds: Math.round(actualDurationSeconds),
+      audioBlobId: recResult?.recordingId,
+      audioUrl,
+      actualDurationSeconds,
       hesitationsDetected: analyzerStats.hesitations.length,
       wpm: Math.round(analyzerStats.wpm),
       mistakes: detectedMistakes,

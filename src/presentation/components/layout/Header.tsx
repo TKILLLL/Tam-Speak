@@ -151,6 +151,16 @@ export const Header: React.FC = () => {
                 <div className="py-1">
                   <button
                     onClick={() => {
+                      setCurrentView('profile');
+                      setDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <UserIcon className="w-4 h-4 text-slate-400" />
+                    <span>Profile & Targets</span>
+                  </button>
+                  <button
+                    onClick={() => {
                       setCurrentView('settings');
                       setDropdownOpen(false);
                     }}

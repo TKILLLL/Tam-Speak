@@ -5,12 +5,14 @@ import { container } from '../../../di/DIContainer';
 import { HesitationMarker } from '../../../infrastructure/audio/useAudioAnalyzer';
 
 interface WaveformAudioPlayerProps {
+  audioUrl?: string;
   recordingId?: string;
   durationSeconds?: number;
   hesitations?: HesitationMarker[];
 }
 
 export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
+  audioUrl,
   recordingId,
   durationSeconds = 5,
   hesitations = [],
@@ -39,10 +41,17 @@ export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
 
     ws.on('play', () => setIsPlaying(true));
     ws.on('pause', () => setIsPlaying(false));
+    ws.on('finish', () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    });
     ws.on('timeupdate', (time) => setCurrentTime(time));
 
-    // Load audio from Dexie local storage if recordingId provided, or generate dummy sine audio
     const loadAudio = async () => {
+      if (audioUrl) {
+        ws.load(audioUrl);
+        return;
+      }
       if (recordingId) {
         const stored = await container.localAudioRepository.getAudio(recordingId);
         if (stored && stored.blob) {
@@ -52,12 +61,8 @@ export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
         }
       }
 
-      // Generate a mock audio data URL for visual waveform representation
+      // Generate a visual waveform representation if no audio source
       try {
-        const dummyCanvas = document.createElement('canvas');
-        dummyCanvas.width = 100;
-        dummyCanvas.height = 10;
-        // In wavesurfer v7, load with empty or mock peaks
         const mockPeaks = [0.1, 0.4, 0.8, 0.5, 0.3, 0.7, 0.9, 0.6, 0.2, 0.5];
         ws.load('', [mockPeaks], Math.max(1, durationSeconds));
       } catch {
@@ -71,7 +76,7 @@ export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
       ws.destroy();
       waveSurferRef.current = null;
     };
-  }, [durationSeconds, recordingId]);
+  }, [audioUrl, durationSeconds, recordingId]);
 
   const togglePlay = () => {
     if (waveSurferRef.current) {

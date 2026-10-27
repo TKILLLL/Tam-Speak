@@ -178,6 +178,105 @@ export class ResilientAIGateway implements IAIGateway {
   }
 
   /**
+   * Hybrid Live Speech-to-Text Audio Verification
+   * Uses Groq Whisper-large-v3-turbo or Gemini 2.5 Flash Multimodal Audio
+   */
+  public async transcribeAudio(audioBlob: Blob, promptContext?: string): Promise<string> {
+    // 1. Try Groq Whisper (turbo)
+    const groqKey = this.getPersonalKey('groq') || this.keyPools.get('groq')?.keys[0];
+    if (groqKey) {
+      try {
+        const formData = new FormData();
+        const extension = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
+        formData.append('file', audioBlob, `recording.${extension}`);
+        formData.append('model', 'whisper-large-v3-turbo');
+        formData.append('language', 'en');
+        if (promptContext) {
+          formData.append('prompt', promptContext.slice(0, 200));
+        }
+
+        const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: formData,
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data?.text && data.text.trim().length > 0) {
+            return data.text.trim();
+          }
+        }
+      } catch (err) {
+        console.warn('Groq Whisper audio transcription failed, attempting Gemini:', err);
+      }
+    }
+
+    // 2. Try Gemini 2.5 Flash Multimodal Audio
+    const geminiKey = this.getPersonalKey('gemini') || this.keyPools.get('gemini')?.keys[0];
+    if (geminiKey) {
+      try {
+        const base64Audio = await this.blobToBase64(audioBlob);
+        const mimeType = audioBlob.type || 'audio/webm';
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `Accurately transcribe the spoken English words in this audio recording verbatim. Output ONLY the clean English transcript text without explanation or quotation marks. Context: ${promptContext || 'English conversation practice'}`,
+                    },
+                    {
+                      inlineData: {
+                        mimeType: mimeType.split(';')[0] || 'audio/webm',
+                        data: base64Audio,
+                      },
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 250,
+              },
+            }),
+          }
+        );
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (candidateText && candidateText.trim().length > 0) {
+            return candidateText.trim().replace(/^["']|["']$/g, '');
+          }
+        }
+      } catch (err) {
+        console.warn('Gemini multimodal audio transcription failed:', err);
+      }
+    }
+
+    return '';
+  }
+
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).split(',')[1] || '';
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /**
    * Dispatches an AI request across the fallback chain with Circuit Breakers & Key Rotation.
    */
   private async executeWithFallback(
@@ -250,14 +349,18 @@ export class ResilientAIGateway implements IAIGateway {
     dialogue: readonly DialogueTurn[];
   }): Promise<EvaluationResult> {
     const rawSystemPrompt = [
-      `You are an expert IELTS Speaking Examiner and Acoustic Pronunciation Evaluator.`,
-      `Context: ${params.contextTitle}. Target Band CEFR: ${params.targetLevel.toUpperCase()}.`,
-      `Analyze the transcript dialogue and provide rigorous IELTS band scoring for 4 criteria:`,
-      `1. pronunciationScore (0.0 to 9.0 in increments of 0.5)`,
-      `2. fluencyScore (0.0 to 9.0 in increments of 0.5)`,
-      `3. lexicalScore (0.0 to 9.0 in increments of 0.5)`,
-      `4. grammarScore (0.0 to 9.0 in increments of 0.5)`,
-      `Provide a comprehensive JSON object matching the requested schema with detailed suggestions.`,
+      `You are an expert, strict IELTS Speaking Examiner and Acoustic Pronunciation Evaluator.`,
+      `Context: ${params.contextTitle}. Candidate Target CEFR: ${params.targetLevel.toUpperCase()}.`,
+      `Analyze the candidate's responses in the transcript dialogue and provide rigorous IELTS band scoring (0.0 to 9.0 in increments of 0.5) for the 4 criteria:`,
+      `1. pronunciationScore`,
+      `2. fluencyScore`,
+      `3. lexicalScore`,
+      `4. grammarScore`,
+      `CRITICAL EVALUATION RULES:`,
+      `- TASK RELEVANCE / OFF-TOPIC CHECK: If the candidate does not answer the examiner's specific question, speaks about an unrelated topic, or gives a nonsensical response, assign Band 2.0 to 4.0 for Fluency & Coherence and Lexical Resource. State explicitly in summary and weaknesses: 'The response is off-topic or fails to address the question.'`,
+      `- INSUFFICIENT LENGTH: If the candidate speaks fewer than 20 words across the session, assign Band 1.5 to 3.0. Do not reward brief 1-2 sentence fragments with high scores.`,
+      `- REALISTIC BAND DISTRIBUTION: Native C2 is 8.5-9.0. Professional C1 is 7.0-8.0. Intermediate B2 is 5.5-6.5. Basic B1 is 4.0-5.0. Elementary A2 is 2.5-3.5. Strictly avoid score inflation.`,
+      `Provide a comprehensive JSON object matching the requested schema with precise weaknesses, strengths, grammar corrections, and native vocabulary enhancements.`,
       `Output ONLY valid JSON.`,
     ].join('\n');
 
@@ -297,15 +400,27 @@ export class ResilientAIGateway implements IAIGateway {
         providerUsed,
       };
     } catch {
+      const userWords = params.dialogue
+        .filter((d) => d.speaker === 'user')
+        .reduce((sum, d) => sum + d.text.trim().split(/\s+/).filter(Boolean).length, 0);
+
+      const calculatedBand = userWords < 15 ? 2.5 : userWords < 35 ? 4.0 : userWords < 70 ? 5.5 : 6.0;
+
       return {
-        pronunciationScore: BandScore.create(6.5),
-        fluencyScore: BandScore.create(6.5),
-        lexicalScore: BandScore.create(6.5),
-        grammarScore: BandScore.create(6.5),
+        pronunciationScore: BandScore.create(calculatedBand),
+        fluencyScore: BandScore.create(calculatedBand),
+        lexicalScore: BandScore.create(calculatedBand),
+        grammarScore: BandScore.create(calculatedBand),
         detailedFeedback: {
-          summary: 'Demonstrated good foundational speaking fluency and clear communicative ability.',
-          strengths: ['Clear spoken articulation', 'Immediate comprehension and responsiveness'],
-          weaknesses: ['Expand sentence variety using idiomatic collocations', 'Reduce hesitation markers'],
+          summary:
+            userWords < 20
+              ? 'Candidate provided very brief answers with insufficient spoken data to demonstrate full range.'
+              : 'Candidate answered communicative prompts with basic coherence, but requires further idiomatic range and complex grammar.',
+          strengths: userWords < 20 ? ['Understood prompt direction'] : ['Spoke audibly', 'Direct response'],
+          weaknesses:
+            userWords < 20
+              ? ['Answer was too brief to assess higher-level vocabulary', 'Expand on key supporting details']
+              : ['Expand sentence variety using idiomatic collocations', 'Reduce hesitation markers'],
           suggestedPhrases: [
             { original: 'I think that', improved: 'From my personal vantage point', reason: 'Adds nuance and sophistication to expressing opinions' },
           ],

@@ -26,6 +26,8 @@ export interface DialogueTurn {
   text: string;
   timestampSeconds: number;
   audioBlobId?: string;
+  audioUrl?: string;
+  actualDurationSeconds?: number;
   wpm?: number;
   hesitationsDetected?: number;
   ipaCorrections?: Array<{

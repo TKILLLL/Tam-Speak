@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Sparkles, Plus, X, Loader2, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Plus, X, Loader2, ShieldCheck } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
 import { SkillLevel } from '../../../domain/entities/User';
@@ -263,10 +263,7 @@ export const CustomTopicBuilder: React.FC<CustomTopicBuilderProps> = ({ onBack, 
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>Save & Start Conversation</span>
-              </>
+              <span>Save & Start Conversation</span>
             )}
           </button>
         </div>

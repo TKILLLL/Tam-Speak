@@ -6,6 +6,7 @@ export type NavigationView =
   | 'conversation'
   | 'pronunciation'
   | 'progress'
+  | 'profile'
   | 'raw_data'
   | 'settings'
   | 'ielts'
@@ -87,6 +88,8 @@ export interface TamSpeakState {
   setRightPanelTab: (tab: RightPanelTab) => void;
   rightPanelExpanded: boolean;
   setRightPanelExpanded: (expanded: boolean) => void;
+  rightPanelCollapsed: boolean;
+  setRightPanelCollapsed: (collapsed: boolean) => void;
   rightPanelOpenMobile: boolean;
   setRightPanelOpenMobile: (open: boolean) => void;
 
@@ -95,6 +98,8 @@ export interface TamSpeakState {
   setOrbState: (state: OrbState) => void;
   audioLevel: number;
   setAudioLevel: (level: number) => void;
+  liveSpeechTranscript: string;
+  setLiveSpeechTranscript: (transcript: string) => void;
   activeAIProvider: string;
   setActiveAIProvider: (provider: string) => void;
   activeAIVoice: string;
@@ -171,6 +176,8 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   rightPanelExpanded: false,
   setRightPanelExpanded: (expanded) => set({ rightPanelExpanded: expanded }),
+  rightPanelCollapsed: false,
+  setRightPanelCollapsed: (collapsed) => set({ rightPanelCollapsed: collapsed }),
   rightPanelOpenMobile: false,
   setRightPanelOpenMobile: (open) => set({ rightPanelOpenMobile: open }),
 
@@ -179,6 +186,8 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setOrbState: (state) => set({ orbState: state }),
   audioLevel: 0,
   setAudioLevel: (audioLevel) => set({ audioLevel }),
+  liveSpeechTranscript: '',
+  setLiveSpeechTranscript: (liveSpeechTranscript) => set({ liveSpeechTranscript }),
   activeAIProvider: 'Gemini 2.5 Flash',
   setActiveAIProvider: (activeAIProvider) => set({ activeAIProvider }),
   activeAIVoice: 'Aoede (US)',

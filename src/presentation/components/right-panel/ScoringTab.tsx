@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
 import {
   Award,
-  Sparkles,
   CheckCircle2,
   AlertCircle,
   Loader2,
   RefreshCw,
+  Info,
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
 
 export const ScoringTab: React.FC = () => {
-  const { activeSession, dialogueTurns, activeTopic, user } = useTamSpeakStore();
+  const { activeSession, setActiveSession, dialogueTurns, activeTopic, user } = useTamSpeakStore();
   const [evaluating, setEvaluating] = useState(false);
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
   const [evaluationData, setEvaluationData] = useState<{
     overallScore: number;
     pronunciationScore: number;
@@ -27,66 +28,85 @@ export const ScoringTab: React.FC = () => {
     activeSession?.overallScore
       ? {
           overallScore: activeSession.overallScore,
-          pronunciationScore: activeSession.pronunciationScore ?? 7.0,
-          fluencyScore: activeSession.fluencyScore ?? 7.5,
-          lexicalScore: activeSession.lexicalScore ?? 7.5,
-          grammarScore: activeSession.grammarScore ?? 7.0,
-          wpm: activeSession.wordsPerMinute ?? 128,
-          hesitationCount: activeSession.hesitationCount ?? 2,
+          pronunciationScore: activeSession.pronunciationScore ?? 6.0,
+          fluencyScore: activeSession.fluencyScore ?? 6.0,
+          lexicalScore: activeSession.lexicalScore ?? 6.0,
+          grammarScore: activeSession.grammarScore ?? 6.0,
+          wpm: activeSession.wordsPerMinute ?? 110,
+          hesitationCount: activeSession.hesitationCount ?? 0,
           strengths: activeSession.detailedFeedback?.strengths || ['Natural rhythm', 'Good collocations'],
           weaknesses: activeSession.detailedFeedback?.weaknesses || ['Slight pause at topic shift'],
         }
       : null
   );
 
+  const userTurns = dialogueTurns.filter((d) => d.speaker === 'user');
+  const totalUserWords = userTurns.reduce(
+    (sum, d) => sum + (d.text ? d.text.trim().split(/\s+/).filter(Boolean).length : 0),
+    0
+  );
+  const totalSpeechSeconds = userTurns.reduce(
+    (sum, d) =>
+      sum +
+      (d.actualDurationSeconds && d.actualDurationSeconds > 0
+        ? d.actualDurationSeconds
+        : Math.max(1.5, d.text.split(' ').length * 0.45)),
+    0
+  );
+  const realWpm = totalSpeechSeconds > 0 ? Math.round((totalUserWords / totalSpeechSeconds) * 60) : 0;
+  const totalHesitations = userTurns.reduce((sum, d) => sum + (d.hesitationsDetected ? 1 : 0), 0);
+  const hasEnoughData = userTurns.length >= 3 || totalUserWords >= 15;
+
   const handleEvaluate = async () => {
-    if (!dialogueTurns.some((d) => d.speaker === 'user')) {
-      alert('Please speak at least one turn before checking your score!');
+    if (!hasEnoughData) {
       return;
     }
 
     setEvaluating(true);
+    setEvaluationError(null);
     try {
       const sessionId = activeSession?.id || `sess-${Date.now()}`;
-      const totalWords = dialogueTurns
-        .filter((d) => d.speaker === 'user')
-        .reduce((sum, d) => sum + d.text.split(' ').length, 0);
 
       const res = await container.evaluateSpeechUseCase.execute({
         sessionId,
         userId: user?.id || 'guest-user',
-        durationSeconds: Math.max(30, totalWords * 0.5),
-        wpm: Math.min(160, Math.max(100, Math.round(totalWords / 0.5))),
-        hesitationCount: 2,
-        silenceDurations: [0.9, 1.1],
-        contextTitle: activeTopic?.title || 'English Conversation',
+        durationSeconds: Math.max(15, Math.round(totalSpeechSeconds)),
+        wpm: realWpm,
+        hesitationCount: totalHesitations,
+        silenceDurations: [0.9, 1.2],
+        contextTitle: activeTopic?.title || 'IELTS Speaking Practice',
         targetLevel: user?.currentLevel || 'b2',
       });
 
-      setEvaluationData({
-        overallScore: res.overallScore ?? 7.5,
-        pronunciationScore: res.pronunciationScore ?? 7.5,
-        fluencyScore: res.fluencyScore ?? 7.0,
-        lexicalScore: res.lexicalScore ?? 8.0,
-        grammarScore: res.grammarScore ?? 7.5,
+      const evaluated = {
+        overallScore: res.overallScore ?? 6.0,
+        pronunciationScore: res.pronunciationScore ?? 6.0,
+        fluencyScore: res.fluencyScore ?? 6.0,
+        lexicalScore: res.lexicalScore ?? 6.0,
+        grammarScore: res.grammarScore ?? 6.0,
         wpm: res.wordsPerMinute,
         hesitationCount: res.hesitationCount,
-        strengths: res.detailedFeedback?.strengths || ['Natural rhythm', 'Good collocations'],
-        weaknesses: res.detailedFeedback?.weaknesses || ['Slight pause at complex transitions'],
-      });
-    } catch {
-      // Fallback preview
-      setEvaluationData({
-        overallScore: 7.5,
-        pronunciationScore: 7.5,
-        fluencyScore: 7.0,
-        lexicalScore: 8.0,
-        grammarScore: 7.5,
-        wpm: 132,
-        hesitationCount: 2,
-        strengths: ['Fluid conversational pacing', 'Impressive C1 idiom usage'],
-        weaknesses: ['Minor pause at transition clauses'],
-      });
+        strengths: res.detailedFeedback?.strengths || ['Natural rhythm', 'Clear articulation'],
+        weaknesses: res.detailedFeedback?.weaknesses || ['Further practice on complex subordinating clauses'],
+      };
+
+      setEvaluationData(evaluated);
+
+      if (activeSession) {
+        setActiveSession({
+          ...activeSession,
+          overallScore: res.overallScore,
+          pronunciationScore: res.pronunciationScore,
+          fluencyScore: res.fluencyScore,
+          lexicalScore: res.lexicalScore,
+          grammarScore: res.grammarScore,
+          wordsPerMinute: res.wordsPerMinute,
+          hesitationCount: res.hesitationCount,
+          detailedFeedback: res.detailedFeedback,
+        });
+      }
+    } catch (err) {
+      setEvaluationError('Đánh giá không thành công, vui lòng thử lại.');
     } finally {
       setEvaluating(false);
     }
@@ -103,29 +123,75 @@ export const ScoringTab: React.FC = () => {
     <div className="flex-1 flex flex-col h-full overflow-y-auto pr-1 select-none text-xs">
       {/* If No Score Yet */}
       {!evaluationData ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-3">
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
           <div className="w-14 h-14 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-600">
             <Award className="w-7 h-7 stroke-1.5" />
           </div>
           <div>
             <h4 className="font-bold text-sm text-slate-800">IELTS Official 4-Criterion Scoring</h4>
-            <p className="text-[11px] text-slate-500 mt-1 max-w-xs">
-              Evaluate your pronunciation, speech pace (WPM), hesitations, lexical density, and grammar accuracy.
+            <p className="text-[11px] text-slate-500 mt-1 max-w-xs leading-relaxed">
+              Hệ thống đánh giá độ chuẩn xác phát âm, tốc độ nói (WPM), số lần ngập ngừng, vốn từ vựng và ngữ pháp.
             </p>
           </div>
 
+          {/* Data Requirement Status Banner */}
+          {!hasEnoughData ? (
+            <div className="w-full max-w-xs p-3 rounded-2xl bg-amber-50/90 border border-amber-200 text-left space-y-2">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-amber-900 text-[11px]">Chưa đủ dữ liệu chấm điểm</p>
+                  <p className="text-amber-700 text-[10px] mt-0.5 leading-tight">
+                    Cần tối thiểu 3 lượt trả lời hoặc 15 từ để AI chấm điểm chuẩn xác theo chuẩn IELTS.
+                  </p>
+                </div>
+              </div>
+
+              {/* Progress Counters */}
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60 font-mono text-[11px]">
+                <div className="bg-white/80 p-1.5 rounded-lg border border-amber-200/80">
+                  <span className="text-[10px] text-slate-500 block">Lượt nói:</span>
+                  <span className={`font-bold ${userTurns.length >= 3 ? 'text-emerald-700' : 'text-slate-800'}`}>
+                    {userTurns.length} / 3 lượt
+                  </span>
+                </div>
+                <div className="bg-white/80 p-1.5 rounded-lg border border-amber-200/80">
+                  <span className="text-[10px] text-slate-500 block">Số từ:</span>
+                  <span className={`font-bold ${totalUserWords >= 15 ? 'text-emerald-700' : 'text-slate-800'}`}>
+                    {totalUserWords} / 15 từ
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full max-w-xs p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-left flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <div className="text-[11px] text-emerald-800 font-medium">
+                Đủ dữ liệu ({userTurns.length} lượt, {totalUserWords} từ, ~{realWpm} WPM). Sẵn sàng chấm điểm.
+              </div>
+            </div>
+          )}
+
+          {evaluationError && (
+            <p className="text-[11px] text-rose-600 font-semibold">{evaluationError}</p>
+          )}
+
           <button
             onClick={handleEvaluate}
-            disabled={evaluating}
-            className="py-2.5 px-6 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs hover:shadow transition-all flex items-center gap-2"
+            disabled={!hasEnoughData || evaluating}
+            className={`py-2.5 px-6 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 ${
+              hasEnoughData && !evaluating
+                ? 'bg-teal-600 hover:bg-teal-700 text-white hover:shadow cursor-pointer'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+            }`}
           >
             {evaluating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
               <>
-                <Sparkles className="w-4 h-4" />
-                <span>Evaluate Speech Now</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Đang phân tích chấm điểm...</span>
               </>
+            ) : (
+              <span>Chấm điểm bài nói</span>
             )}
           </button>
         </div>
@@ -142,7 +208,7 @@ export const ScoringTab: React.FC = () => {
                 <span className="text-teal-200 text-xs font-medium">/ 9.0</span>
               </div>
               <span className="text-[10px] text-teal-100 mt-1 block">
-                CEFR Equivalent: {evaluationData.overallScore >= 8 ? 'C1/C2 Advanced' : 'B2 Upper-Intermediate'}
+                CEFR Equivalent: {evaluationData.overallScore >= 8 ? 'C1/C2 Advanced' : evaluationData.overallScore >= 6.5 ? 'B2 Upper-Intermediate' : 'B1 Intermediate'}
               </span>
             </div>
 

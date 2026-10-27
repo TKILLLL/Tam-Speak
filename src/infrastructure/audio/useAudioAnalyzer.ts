@@ -128,6 +128,8 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 16000,
       },
     });
 

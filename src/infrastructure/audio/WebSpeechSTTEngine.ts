@@ -79,23 +79,25 @@ export class WebSpeechSTTEngine {
     this.recognition.lang = 'en-US';
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let accumulatedFinal = '';
       let interim = '';
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         if (result && result[0]) {
           const text = result[0].transcript;
           if (result.isFinal) {
-            this.finalTranscript += `${text} `;
+            accumulatedFinal += `${text} `;
           } else {
             interim += text;
           }
         }
       }
 
-      this.interimTranscript = interim;
+      this.finalTranscript = accumulatedFinal.trim();
+      this.interimTranscript = interim.trim();
       if (this.onTranscriptUpdateCallback) {
-        this.onTranscriptUpdateCallback(this.finalTranscript.trim(), this.interimTranscript.trim());
+        this.onTranscriptUpdateCallback(this.finalTranscript, this.interimTranscript);
       }
     };
 

@@ -51,4 +51,5 @@ export interface IAIGateway {
 
   setPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter', key: string | null): void;
   getPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter'): string | null;
+  transcribeAudio?(audioBlob: Blob, promptContext?: string): Promise<string>;
 }

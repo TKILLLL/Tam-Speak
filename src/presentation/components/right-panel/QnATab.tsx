@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare,
   Volume2,
@@ -36,6 +36,12 @@ export const QnATab: React.FC = () => {
     alt: string;
   } | null>(null);
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [dialogueTurns]);
+
   const toggleTurnExpansion = (turnId: string) => {
     setExpandedTurnId(expandedTurnId === turnId ? null : turnId);
   };
@@ -69,7 +75,7 @@ export const QnATab: React.FC = () => {
           <p className="text-slate-800 leading-relaxed font-normal">{text}</p>
           <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold mt-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>✓ Natural & Accurate</span>
+            <span>Natural and Accurate</span>
           </div>
         </div>
       );
@@ -283,8 +289,13 @@ export const QnATab: React.FC = () => {
                 {/* If User Turn: Render Waveform with Red Hesitation Markers */}
                 {isUser && (
                   <WaveformAudioPlayer
+                    audioUrl={turn.audioUrl}
                     recordingId={turn.audioBlobId}
-                    durationSeconds={Math.max(3, turn.text.split(' ').length * 0.45)}
+                    durationSeconds={
+                      turn.actualDurationSeconds && turn.actualDurationSeconds > 0
+                        ? turn.actualDurationSeconds
+                        : Math.max(2, turn.text.split(' ').length * 0.45)
+                    }
                     hesitations={
                       turn.hesitationsDetected
                         ? [{ startSeconds: 1.2, endSeconds: 2.1, durationSeconds: 0.9 }]
@@ -364,6 +375,7 @@ export const QnATab: React.FC = () => {
             );
           })
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Mini Scratchpad & 0-Token Drawer at Bottom */}

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Volume2,
   Mic,
@@ -8,8 +8,8 @@ import {
   ChevronRight,
   Flame,
   Plus,
-  Sparkles,
   Award,
+  X,
 } from 'lucide-react';
 import { useTamSpeakStore, MistakeItem } from '../../store';
 import { container } from '../../../di/DIContainer';
@@ -40,30 +40,6 @@ export const PronunciationLabView: React.FC = () => {
 
   const activeCard: MistakeItem | undefined = filteredCards[currentIndex];
 
-  const handleNext = () => {
-    setEvaluationResult(null);
-    setUserTranscript('');
-    if (currentIndex < filteredCards.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      setCurrentIndex(0);
-    }
-  };
-
-  const handlePrev = () => {
-    setEvaluationResult(null);
-    setUserTranscript('');
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    } else {
-      setCurrentIndex(Math.max(0, filteredCards.length - 1));
-    }
-  };
-
-  const handleListenStandard = (word: string) => {
-    container.speechTTSEngine.speak(word, { rate: 0.9 });
-  };
-
   const calculateSimilarity = (s1: string, s2: string): number => {
     const a = s1.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const b = s2.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -93,10 +69,16 @@ export const PronunciationLabView: React.FC = () => {
     return Math.max(0, Math.round(((maxLen - dist) / maxLen) * 100));
   };
 
+  const isRecordingRef = useRef(false);
+  isRecordingRef.current = isRecording;
+  const activeCardRef = useRef<MistakeItem | undefined>(activeCard);
+  activeCardRef.current = activeCard;
+
   const recognitionBufferRef = useRef('');
 
   const startPronounceTest = () => {
-    if (!activeCard || isRecording) return;
+    const card = activeCardRef.current;
+    if (!card || isRecordingRef.current) return;
     setEvaluationResult(null);
     setUserTranscript('');
     recognitionBufferRef.current = '';
@@ -118,7 +100,8 @@ export const PronunciationLabView: React.FC = () => {
   };
 
   const stopPronounceTest = () => {
-    if (!activeCard || !isRecording) return;
+    const card = activeCardRef.current;
+    if (!card || !isRecordingRef.current) return;
     setIsRecording(false);
     const spoken = container.speechSTTEngine.stop() || recognitionBufferRef.current;
     setUserTranscript(spoken);
@@ -126,20 +109,20 @@ export const PronunciationLabView: React.FC = () => {
     if (!spoken.trim()) {
       setEvaluationResult({
         accuracy: 0,
-        feedback: "Could not hear audio clearly. Please hold the button while speaking into your mic.",
+        feedback: "Could not hear audio clearly. Please hold the Space key or microphone button while speaking.",
         isSuccess: false,
       });
       return;
     }
 
-    const accuracy = calculateSimilarity(spoken, activeCard.word);
+    const accuracy = calculateSimilarity(spoken, card.word);
     const isSuccess = accuracy >= 80;
 
     if (isSuccess) {
-      markMistakeMastered(activeCard.word);
+      markMistakeMastered(card.word);
       setEvaluationResult({
         accuracy,
-        feedback: `🎉 Excellent! Your pronunciation matched with ${accuracy}% accuracy. Marked as Mastered!`,
+        feedback: `Excellent! Your pronunciation matched with ${accuracy}% accuracy. Marked as Mastered!`,
         isSuccess: true,
       });
     } else {
@@ -149,6 +132,61 @@ export const PronunciationLabView: React.FC = () => {
         isSuccess: false,
       });
     }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+          return;
+        }
+        e.preventDefault();
+        startPronounceTest();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+          return;
+        }
+        e.preventDefault();
+        stopPronounceTest();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  const handleNext = () => {
+    setEvaluationResult(null);
+    setUserTranscript('');
+    if (currentIndex < filteredCards.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      setCurrentIndex(0);
+    }
+  };
+
+  const handlePrev = () => {
+    setEvaluationResult(null);
+    setUserTranscript('');
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    } else {
+      setCurrentIndex(Math.max(0, filteredCards.length - 1));
+    }
+  };
+
+  const handleListenStandard = (word: string) => {
+    container.speechTTSEngine.speak(word, { rate: 0.9 });
   };
 
   const handleAddNewWord = (e: React.FormEvent) => {
@@ -180,7 +218,7 @@ export const PronunciationLabView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              <span>🎯 Pronunciation & IPA Lab</span>
+              <span>Pronunciation & IPA Lab</span>
               <span className="text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
                 Interactive Flashcards
               </span>
@@ -256,7 +294,7 @@ export const PronunciationLabView: React.FC = () => {
         {/* Flashcard Area */}
         {filteredCards.length === 0 ? (
           <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 shadow-xs">
-            <Sparkles className="w-12 h-12 text-teal-400 mx-auto mb-3" />
+            <Award className="w-12 h-12 text-teal-500 mx-auto mb-3 stroke-1" />
             <h3 className="text-sm font-bold text-slate-800 mb-1">
               {activeTab === 'needs_practice'
                 ? 'No words currently need practice!'
@@ -328,9 +366,11 @@ export const PronunciationLabView: React.FC = () => {
 
               {/* Interactive Practice Recording Area */}
               <div className="pt-2 border-t border-slate-100 flex flex-col items-center gap-3">
-                <p className="text-[11px] font-semibold text-slate-500 text-center">
-                  Press and hold to pronounce <span className="text-slate-800 font-bold">"{activeCard.word}"</span>
-                </p>
+                <div className="text-center space-y-1">
+                  <p className="text-[11px] font-semibold text-slate-500">
+                    Nhấn giữ <kbd className="font-mono bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-700">Space</kbd> hoặc click biểu tượng Micro để đọc thử từ này: <span className="text-slate-800 font-bold">"{activeCard.word}"</span>
+                  </p>
+                </div>
 
                 <button
                   onMouseDown={startPronounceTest}
@@ -344,7 +384,7 @@ export const PronunciationLabView: React.FC = () => {
                   }`}
                 >
                   <Mic className={`w-4 h-4 ${isRecording ? 'animate-pulse' : ''}`} />
-                  <span>{isRecording ? 'Listening... Release to evaluate' : 'Hold to Practice Pronouncing'}</span>
+                  <span>{isRecording ? 'Listening... Release to evaluate' : 'Hold Space or Click to Pronounce'}</span>
                 </button>
 
                 {userTranscript && (
@@ -416,9 +456,9 @@ export const PronunciationLabView: React.FC = () => {
                 <h3 className="text-sm font-bold text-slate-900">Add Word to Pronunciation Lab</h3>
                 <button
                   onClick={() => setAddModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 

@@ -91,13 +91,13 @@ export const SettingsView: React.FC = () => {
       if (response.ok) {
         setGeminiTestStatus({
           state: 'valid',
-          message: '🟢 Valid API Key! Sẵn sàng sử dụng Gemini 2.5 Flash không giới hạn.',
+          message: 'Valid API Key! Sẵn sàng sử dụng Gemini 2.5 Flash không giới hạn.',
         });
       } else {
         const errorData = await response.json().catch(() => ({}));
         setGeminiTestStatus({
           state: 'invalid',
-          message: `🔴 Invalid Key (${response.status}): ${
+          message: `Invalid Key (${response.status}): ${
             errorData?.error?.message || 'API Key không hợp lệ hoặc chưa kích hoạt Generative Language API.'
           }`,
         });
@@ -105,7 +105,7 @@ export const SettingsView: React.FC = () => {
     } catch (err: any) {
       setGeminiTestStatus({
         state: 'invalid',
-        message: `🔴 Lỗi kết nối mạng: ${err?.message || 'Không thể ping đến Gemini API.'}`,
+        message: `Lỗi kết nối mạng: ${err?.message || 'Không thể ping đến Gemini API.'}`,
       });
     }
   };
@@ -141,18 +141,18 @@ export const SettingsView: React.FC = () => {
       if (response.ok) {
         setGroqTestStatus({
           state: 'valid',
-          message: '🟢 Valid API Key! Sẵn sàng sử dụng Groq Llama 3.3 70B siêu tốc độ.',
+          message: 'Valid API Key! Sẵn sàng sử dụng Groq Llama 3.3 70B siêu tốc độ.',
         });
       } else {
         setGroqTestStatus({
           state: 'invalid',
-          message: `🔴 Invalid Key (${response.status}): Key Groq không chính xác hoặc đã hết hạn.`,
+          message: `Invalid Key (${response.status}): Key Groq không chính xác hoặc đã hết hạn.`,
         });
       }
     } catch (err: any) {
       setGroqTestStatus({
         state: 'invalid',
-        message: `🔴 Lỗi kết nối: ${err?.message || 'Không thể ping đến Groq API.'}`,
+        message: `Lỗi kết nối: ${err?.message || 'Không thể ping đến Groq API.'}`,
       });
     }
   };
@@ -224,7 +224,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <span>🔑 Personal API Key Configuration (BYOK)</span>
+                  <span>Personal API Key Configuration (BYOK)</span>
                   <span className="text-[10px] bg-amber-100 text-amber-800 font-extrabold px-2 py-0.5 rounded-full">
                     Khuyên Dùng
                   </span>
@@ -299,7 +299,7 @@ export const SettingsView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors shadow-2xs"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>⚡ Test & Verify Key</span>
+                <span>Test & Verify Key</span>
               </button>
 
               <button
@@ -308,7 +308,7 @@ export const SettingsView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors shadow-2xs"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>💾 Save to Local Vault</span>
+                <span>Save to Local Vault</span>
               </button>
 
               {geminiKey && (
@@ -387,7 +387,7 @@ export const SettingsView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors shadow-2xs"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>⚡ Test & Verify Key</span>
+                <span>Test & Verify Key</span>
               </button>
 
               <button
@@ -396,7 +396,7 @@ export const SettingsView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-colors shadow-2xs"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>💾 Save to Local Vault</span>
+                <span>Save to Local Vault</span>
               </button>
 
               {groqKey && (
@@ -515,7 +515,7 @@ export const SettingsView: React.FC = () => {
                     className="w-full py-2 px-3 rounded-xl bg-white border border-teal-200 hover:bg-teal-100/50 text-teal-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
                   >
                     <Volume2 className="w-3.5 h-3.5 text-teal-600" />
-                    <span>🔊 Preview Voice</span>
+                    <span>Preview Voice</span>
                   </button>
                 </div>
               );

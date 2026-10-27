@@ -3,7 +3,6 @@ import {
   Mic,
   MessageSquare,
   Clock,
-  Sparkles,
   ChevronRight,
   ArrowLeft,
   PlusCircle,
@@ -123,6 +122,7 @@ export const QuickStartTab: React.FC = () => {
     clearDialogueTurns,
     openTopicChangeWarningModal,
     addDialogueTurn,
+    addPronunciationMistake,
     setHasShownRevealWarningInSession,
     setRightPanelTab,
   } = useTamSpeakStore();
@@ -153,11 +153,25 @@ export const QuickStartTab: React.FC = () => {
     const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}`;
     const userId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
 
-    // 1. Reset previous conversation & penalty flags
+    // 1. Save unmastered errors from old dialogue turns to Pronunciation Lab
+    dialogueTurns.forEach((turn) => {
+      turn.mistakes?.forEach((m) => {
+        addPronunciationMistake({
+          word: m.word,
+          ipa: m.ipa,
+          contextSentence: turn.text,
+          errorReason: m.reason,
+          suggestedAlternative: m.suggestedAlternative,
+          topicTitle: title,
+        });
+      });
+    });
+
+    // 2. Reset previous conversation & penalty flags
     clearDialogueTurns();
     setHasShownRevealWarningInSession(false);
 
-    // 2. Set active topic in store
+    // 3. Set active topic in store
     setActiveTopic({
       id: topicId,
       userId,
@@ -172,7 +186,7 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 3. Start practice session in domain
+    // 4. Start practice session in domain
     try {
       const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
       const newSession = PSClass.create({
@@ -187,7 +201,7 @@ export const QuickStartTab: React.FC = () => {
       console.warn('Session save notice:', err);
     }
 
-    // 4. Set active session in store
+    // 5. Set active session in store without hardcoded scores (real evaluation required)
     setActiveSession({
       id: sessionId,
       userId,
@@ -195,11 +209,11 @@ export const QuickStartTab: React.FC = () => {
       mode,
       status: 'recording',
       durationSeconds: 0,
-      overallScore: 7.0,
-      pronunciationScore: 7.0,
-      fluencyScore: 7.0,
-      lexicalScore: 7.0,
-      grammarScore: 7.0,
+      overallScore: null,
+      pronunciationScore: null,
+      fluencyScore: null,
+      lexicalScore: null,
+      grammarScore: null,
       wordsPerMinute: 0,
       hesitationCount: 0,
       transcriptDialogue: [],
@@ -208,12 +222,12 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 5. Generate tailored initial greeting question
+    // 6. Generate tailored initial greeting question
     let greeting = '';
     if (mode === 'ielts_part1') {
       greeting = `Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today's topic is: "${title}". Could you please tell me where you are from and what you like most about your hometown?`;
     } else if (mode === 'ielts_part2') {
-      greeting = `Welcome to Part 2 of the IELTS Speaking test. Your cue card topic is: "${title}". You have 1 minute to organize your ideas, then please speak continuously for up to 2 minutes. When you are ready, press and hold Space!`;
+      greeting = `Welcome to Part 2 of the IELTS Speaking test. Your cue card topic is: "${title}". You should say: what it is, when and where it took place, who was involved, and explain why this was important to you. You have 1 minute to prepare your notes, then speak for up to 2 minutes. When ready, press and hold Space to begin speaking!`;
     } else if (mode === 'ielts_part3') {
       greeting = `Welcome to Part 3 of the IELTS Speaking test: Analytical Discussion. Let us explore "${title}". In your opinion, what major developments have impacted this area in recent years?`;
     } else if (mode === 'ielts_full_mock') {
@@ -222,7 +236,7 @@ export const QuickStartTab: React.FC = () => {
       greeting = `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, hold [Space] and share your thoughts!`;
     }
 
-    // 6. Push initial greeting to dialogueTurns so Q&A displays it immediately
+    // 7. Push initial greeting to dialogueTurns so Q&A displays it immediately
     const initialTurn: DialogueTurn = {
       id: `turn-ai-greeting-${Date.now()}`,
       speaker: 'ai',
@@ -231,7 +245,7 @@ export const QuickStartTab: React.FC = () => {
     };
     addDialogueTurn(initialTurn);
 
-    // 7. Speak greeting & switch to Q&A
+    // 8. Speak greeting & switch to Q&A
     setLastAIMessage(greeting);
     setOrbState('speaking');
     setShowTopicPicker(false);
@@ -243,11 +257,12 @@ export const QuickStartTab: React.FC = () => {
     });
   };
 
-  const handleStartPractice = (topicTitle?: string) => {
+  const handleStartPractice = (presetToUse?: PresetCard, topicTitle?: string) => {
+    const preset = presetToUse || currentPreset;
     if (dialogueTurns.length > 0) {
-      openTopicChangeWarningModal(() => executeStartPractice(currentPreset, topicTitle));
+      openTopicChangeWarningModal(() => executeStartPractice(preset, topicTitle));
     } else {
-      executeStartPractice(currentPreset, topicTitle);
+      executeStartPractice(preset, topicTitle);
     }
   };
 
@@ -310,7 +325,7 @@ export const QuickStartTab: React.FC = () => {
             {CURATED_IELTS_TOPICS.map((topic, i) => (
               <button
                 key={topic}
-                onClick={() => handleStartPractice(topic)}
+                onClick={() => handleStartPractice(undefined, topic)}
                 className="w-full p-3 rounded-xl border border-slate-200 hover:border-teal-400 hover:bg-teal-50/50 text-left transition-all group flex items-center justify-between"
               >
                 <div>
@@ -393,10 +408,9 @@ export const QuickStartTab: React.FC = () => {
             )}
             <button
               onClick={() => handleStartPractice()}
-              className="flex-1 py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs hover:shadow transition-all flex items-center justify-center gap-1.5"
+              className="flex-1 py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs hover:shadow transition-all text-center"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Start Practice</span>
+              Start Practice
             </button>
           </div>
 

@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
+  User,
+  Star,
 } from 'lucide-react';
 import { useTamSpeakStore, NavigationView } from '../../store';
 
@@ -23,6 +25,7 @@ const NAV_ITEMS: NavItemConfig[] = [
   { id: 'conversation', label: 'Conversation Practice', shortLabel: 'Chat', icon: MessageSquare },
   { id: 'pronunciation', label: 'Pronunciation & IPA Lab', shortLabel: 'IPA', icon: Target },
   { id: 'progress', label: 'Progress & Roadmap', shortLabel: 'Stats', icon: BarChart3 },
+  { id: 'profile', label: 'Profile & Targets', shortLabel: 'Profile', icon: User },
   { id: 'raw_data', label: 'Raw Data Studio', shortLabel: 'Import', icon: Download, adminOnly: true },
   { id: 'settings', label: 'AI & Voice Settings', shortLabel: 'Config', icon: Settings },
 ];
@@ -51,16 +54,16 @@ export const Sidebar: React.FC = () => {
         <div
           onClick={() => {
             if (!user) setAuthModalOpen(true);
-            else setCurrentView('progress');
+            else setCurrentView('profile');
           }}
           className="flex items-center gap-2.5 overflow-hidden cursor-pointer group flex-1"
-          title={!user ? 'Click to Sign in' : 'View Progress'}
+          title={!user ? 'Click to Sign in' : 'View Profile'}
         >
           <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs group-hover:bg-teal-600 transition-colors relative">
             {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
             {isAdmin && (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold ring-2 ring-white">
-                ★
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full flex items-center justify-center text-white font-bold ring-2 ring-white">
+                <Star className="w-2 h-2 fill-white text-white" />
               </span>
             )}
           </div>
