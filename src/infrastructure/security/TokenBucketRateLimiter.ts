@@ -24,9 +24,9 @@ export class TokenBucketRateLimiter {
 
   constructor(
     private readonly defaultOptions: RateLimiterOptions = {
-      capacity: 20, // 20 requests burst max
-      refillRatePerSecond: 0.33, // 1 token every ~3 seconds (approx 20 RPM sustained)
-      dailyTokenQuota: 100_000, // 100k tokens/day for shared pool users
+      capacity: 50, // 50 requests burst max
+      refillRatePerSecond: 1.0, // 1 token every second (approx 60 RPM sustained)
+      dailyTokenQuota: 200_000, // 200k tokens/day for shared pool users
     }
   ) {}
 
@@ -69,17 +69,25 @@ export class TokenBucketRateLimiter {
    * Throws RateLimitExceededError if rate limit is exceeded.
    */
   public checkAndConsumeRequest(userId: string): void {
+    // BYOK personal key check: users using their own API key are not throttled by shared pool limiter
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const personal = window.localStorage.getItem('tamspeak_byok_gemini');
+      if (personal && personal.trim().length > 0) {
+        return;
+      }
+    }
+
     const bucket = this.getOrCreateBucket(userId);
 
-    // 1. Detect rapid-fire click spam (e.g. > 5 clicks in 3 seconds)
+    // 1. Detect rapid-fire click spam (e.g. > 10 clicks in 2 seconds)
     const now = Date.now();
-    bucket.recentClicks = bucket.recentClicks.filter((t) => now - t < 3000);
+    bucket.recentClicks = bucket.recentClicks.filter((t) => now - t < 2000);
     bucket.recentClicks.push(now);
 
-    if (bucket.recentClicks.length > 5) {
+    if (bucket.recentClicks.length > 10) {
       throw new RateLimitExceededError(
         'TamSpeak Anti-Spam',
-        5
+        3
       );
     }
 

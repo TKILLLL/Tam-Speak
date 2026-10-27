@@ -294,7 +294,19 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
       dialogueTurns: [...state.dialogueTurns, turn],
       messages: [...state.messages, turn],
     })),
-  clearDialogueTurns: () => set({ dialogueTurns: [], messages: [] }),
+  clearDialogueTurns: () => {
+    // Revoke old audio URLs to prevent memory leak
+    get().dialogueTurns.forEach((turn) => {
+      if (turn.audioUrl && typeof window !== 'undefined') {
+        try {
+          window.URL.revokeObjectURL(turn.audioUrl);
+        } catch {
+          // ignore
+        }
+      }
+    });
+    set({ dialogueTurns: [], messages: [] });
+  },
 
   // Topic Switch & Synchronization
   pendingTargetConfig: null,
@@ -321,6 +333,17 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
       set({ topicChangeWarningModalOpen: false });
       return;
     }
+
+    // Revoke old audio URLs to prevent memory leak
+    get().dialogueTurns.forEach((turn) => {
+      if (turn.audioUrl && typeof window !== 'undefined') {
+        try {
+          window.URL.revokeObjectURL(turn.audioUrl);
+        } catch {
+          // ignore
+        }
+      }
+    });
 
     // Preserve errors into Pronunciation Lab
     get().dialogueTurns.forEach((turn) => {

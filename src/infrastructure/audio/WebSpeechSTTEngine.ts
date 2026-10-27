@@ -1,3 +1,5 @@
+import { VietnameseEntityPhoneticNormalizer } from './VietnameseEntityPhoneticNormalizer';
+
 // SpeechRecognition interface declarations for cross-browser Web Speech API support
 
 interface SpeechRecognitionAlternative {
@@ -94,8 +96,8 @@ export class WebSpeechSTTEngine {
         }
       }
 
-      this.finalTranscript = accumulatedFinal.trim();
-      this.interimTranscript = interim.trim();
+      this.finalTranscript = VietnameseEntityPhoneticNormalizer.normalizeTranscript(accumulatedFinal.trim());
+      this.interimTranscript = VietnameseEntityPhoneticNormalizer.normalizeTranscript(interim.trim());
       if (this.onTranscriptUpdateCallback) {
         this.onTranscriptUpdateCallback(this.finalTranscript, this.interimTranscript);
       }
@@ -157,7 +159,9 @@ export class WebSpeechSTTEngine {
         // Safe ignore
       }
     }
-    const completeText = `${this.finalTranscript} ${this.interimTranscript}`.trim();
+    const completeText = VietnameseEntityPhoneticNormalizer.normalizeTranscript(
+      `${this.finalTranscript} ${this.interimTranscript}`.trim()
+    );
     return completeText;
   }
 

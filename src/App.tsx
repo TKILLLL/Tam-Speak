@@ -5,17 +5,41 @@ import { useTamSpeakStore } from './presentation/store';
 import { container } from './di/DIContainer';
 
 export const App: React.FC = () => {
-  const { setUser } = useTamSpeakStore();
+  const {
+    setUser,
+    setActiveAIVoice,
+    setActiveAIProvider,
+    setFeedbackLanguage,
+    setPracticeMode,
+    setTargetLevel,
+  } = useTamSpeakStore();
 
-  // Startup: Hydrate personal BYOK API keys from localStorage into AI Gateway
+  // Startup: Hydrate personal BYOK API keys and app settings from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
       const savedGemini = window.localStorage.getItem('tamspeak_byok_gemini');
       if (savedGemini && savedGemini.trim().length > 0) {
         container.aiGateway.setPersonalKey?.('gemini', savedGemini.trim());
       }
+
+      const savedSettings = window.localStorage.getItem('tamspeak_settings');
+      if (savedSettings) {
+        try {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed.activeVoice) {
+            setActiveAIVoice(parsed.activeVoice);
+            container.speechTTSEngine.setActivePersona(parsed.activeVoice);
+          }
+          if (parsed.activeAIProvider) setActiveAIProvider(parsed.activeAIProvider);
+          if (parsed.feedbackLanguage) setFeedbackLanguage(parsed.feedbackLanguage);
+          if (parsed.practiceMode) setPracticeMode(parsed.practiceMode);
+          if (parsed.targetLevel) setTargetLevel(parsed.targetLevel);
+        } catch {
+          // ignore
+        }
+      }
     }
-  }, []);
+  }, [setActiveAIProvider, setActiveAIVoice, setFeedbackLanguage, setPracticeMode, setTargetLevel]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {

@@ -72,7 +72,14 @@ export const HoldSpaceToTalk: React.FC = () => {
     setIsHolding(true);
     setOrbState('listening');
 
-    // 0. Cancel any currently playing AI audio so mic doesn't pick up TTS echo
+    // 0. Echo Prevention: Immediately cancel speech synthesis and TTS engine
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // noop
+      }
+    }
     container.speechTTSEngine.stop();
 
     // 1. Zero Learning Curve: Auto-pick starter topic if none selected
@@ -431,6 +438,53 @@ export const HoldSpaceToTalk: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [startVoiceInput, stopVoiceInput, toggleHideLastMessage]);
+
+  // Auto VAD Hands-Free Flow with Echo Lock
+  const vadSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const orbState = useTamSpeakStore((s) => s.orbState);
+
+  useEffect(() => {
+    if (!isAutoVadEnabled) {
+      if (vadSilenceTimerRef.current) {
+        clearTimeout(vadSilenceTimerRef.current);
+        vadSilenceTimerRef.current = null;
+      }
+      return;
+    }
+
+    // ECHO LOCK: Strictly forbid mic activation if AI is speaking or thinking
+    if (orbState === 'speaking' || orbState === 'thinking') {
+      if (isHoldingRef.current) {
+        stopVoiceInput();
+      }
+      return;
+    }
+
+    // If idle and not holding, auto-start listening
+    if (orbState === 'idle' && !isHoldingRef.current) {
+      startVoiceInput();
+    }
+  }, [isAutoVadEnabled, orbState, startVoiceInput, stopVoiceInput]);
+
+  // VAD Auto-Submit when silence follows speech
+  useEffect(() => {
+    if (!isAutoVadEnabled || !isHoldingRef.current || orbState !== 'listening') {
+      return;
+    }
+
+    if (transcriptBufferRef.current.trim().length > 0) {
+      if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
+      vadSilenceTimerRef.current = setTimeout(() => {
+        if (isHoldingRef.current && orbState === 'listening') {
+          stopVoiceInput();
+        }
+      }, 1600);
+    }
+
+    return () => {
+      if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
+    };
+  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
 
   return (
     <div className="flex flex-col items-center gap-3 mt-8 select-none">

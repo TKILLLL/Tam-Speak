@@ -165,7 +165,14 @@ export const SpeakingAIView: React.FC = () => {
     setIsHolding(true);
     setOrbState('listening');
 
-    // Cancel running TTS to avoid microphone picking up speaker echo
+    // Echo Prevention: Cancel running TTS immediately to avoid microphone picking up speaker echo
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // noop
+      }
+    }
     container.speechTTSEngine.stop();
 
     try {
@@ -364,6 +371,52 @@ export const SpeakingAIView: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [startVoiceInput, stopVoiceInput]);
+
+  // Auto VAD Hands-Free Flow with Echo Lock
+  const vadSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isAutoVadEnabled) {
+      if (vadSilenceTimerRef.current) {
+        clearTimeout(vadSilenceTimerRef.current);
+        vadSilenceTimerRef.current = null;
+      }
+      return;
+    }
+
+    // ECHO LOCK: Strictly forbid mic activation if AI is speaking or thinking
+    if (orbState === 'speaking' || orbState === 'thinking') {
+      if (isHoldingRef.current) {
+        stopVoiceInput();
+      }
+      return;
+    }
+
+    // If idle and not holding, auto-start listening
+    if (orbState === 'idle' && !isHoldingRef.current) {
+      startVoiceInput();
+    }
+  }, [isAutoVadEnabled, orbState, startVoiceInput, stopVoiceInput]);
+
+  // VAD Auto-Submit when silence follows speech
+  useEffect(() => {
+    if (!isAutoVadEnabled || !isHoldingRef.current || orbState !== 'listening') {
+      return;
+    }
+
+    if (transcriptBufferRef.current.trim().length > 0) {
+      if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
+      vadSilenceTimerRef.current = setTimeout(() => {
+        if (isHoldingRef.current && orbState === 'listening') {
+          stopVoiceInput();
+        }
+      }, 1600);
+    }
+
+    return () => {
+      if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
+    };
+  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
 
   // Replay AI Audio
   const handleReplayAIMessage = (text: string) => {

@@ -55,6 +55,7 @@ export const SettingsView: React.FC = () => {
         try {
           const parsed = JSON.parse(savedBundle);
           if (parsed.activeVoice) setActiveAIVoice(parsed.activeVoice);
+          if (parsed.activeAIProvider) setActiveAIProvider(parsed.activeAIProvider);
           if (parsed.feedbackLanguage) setFeedbackLanguage(parsed.feedbackLanguage);
           if (parsed.practiceMode) setPracticeMode(parsed.practiceMode);
           if (parsed.targetLevel) setTargetLevel(parsed.targetLevel);
@@ -70,7 +71,7 @@ export const SettingsView: React.FC = () => {
         container.aiGateway.setPersonalKey?.('gemini', savedGemini);
       }
     }
-  }, [setActiveAIVoice, setFeedbackLanguage, setPracticeMode, setTargetLevel]);
+  }, [setActiveAIProvider, setActiveAIVoice, setFeedbackLanguage, setPracticeMode, setTargetLevel]);
 
   // Subscribe to system voices loaded event
   useEffect(() => {
@@ -140,6 +141,7 @@ export const SettingsView: React.FC = () => {
     const settingsBundle = {
       geminiKey: trimmedKey,
       activeVoice: activeAIVoice,
+      activeAIProvider,
       feedbackLanguage,
       practiceMode,
       targetLevel,

@@ -1,4 +1,5 @@
 import { useTamSpeakStore } from '../../presentation/store';
+import { normalizeGeminiContents } from './normalizeGeminiContents';
 
 // Base64 decoded fallback key to comply with repository push security policies
 export const DEFAULT_GEMINI_FALLBACK_KEY =
@@ -59,6 +60,10 @@ export interface ExaminerTurnResult {
     reason: string;
     suggestedAlternative: string;
   }>;
+  speechAnalysis?: {
+    fluencyNote?: string;
+    grammarNote?: string;
+  };
 }
 
 export interface PlacementTestResult {
@@ -113,26 +118,8 @@ export class AIService {
     } = params;
     const apiKey = this.getActiveApiKey();
 
-    // Prepare contents array for Gemini REST
-    const nonSystem = messages.filter((m) => m.role !== 'system');
-    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
-
-    for (const msg of nonSystem) {
-      const role: 'user' | 'model' = msg.role === 'assistant' ? 'model' : 'user';
-      if (contents.length === 0) {
-        if (role === 'model') {
-          contents.push({ role: 'user', parts: [{ text: 'Hello!' }] });
-        }
-        contents.push({ role, parts: [{ text: msg.content }] });
-      } else {
-        const last = contents[contents.length - 1]!;
-        if (last.role === role) {
-          last.parts.push({ text: msg.content });
-        } else {
-          contents.push({ role, parts: [{ text: msg.content }] });
-        }
-      }
-    }
+    // Standardize contents with strict user-first multi-turn alternation (Case 1)
+    const contents = normalizeGeminiContents(messages);
 
     const requestPayload = {
       contents,
@@ -143,6 +130,9 @@ export class AIService {
         temperature,
         maxOutputTokens,
         responseMimeType: jsonMode ? 'application/json' : 'text/plain',
+        thinkingConfig: {
+          thinkingLevel: 'low',
+        },
       },
     };
 
@@ -169,6 +159,24 @@ export class AIService {
         });
 
         clearTimeout(timeoutTimer);
+
+        // Case 3: Stop fallback immediately on HTTP 400/401/403 (Invalid key or bad request)
+        if (response.status === 401 || response.status === 403) {
+          const fatalErr = new Error(
+            `API Key không hợp lệ hoặc không có quyền truy cập (HTTP ${response.status}). Vui lòng kiểm tra lại Google Gemini API Key trong mục Cài Đặt.`
+          );
+          (fatalErr as any).isFatalAuthOrClientError = true;
+          throw fatalErr;
+        }
+
+        if (response.status === 400) {
+          const errBody = await response.text().catch(() => '');
+          const fatalErr = new Error(
+            `Cấu trúc yêu cầu không hợp lệ (HTTP 400): ${errBody.slice(0, 160)}`
+          );
+          (fatalErr as any).isFatalAuthOrClientError = true;
+          throw fatalErr;
+        }
 
         // If rate limit (429), temporary service overload (503), or model unavailable (404): rotate to next model
         if (response.status === 429 || response.status === 503 || response.status === 404) {
@@ -202,6 +210,11 @@ export class AIService {
         return text.trim();
       } catch (err: any) {
         clearTimeout(timeoutTimer);
+        // Do not retry other models if fatal auth or bad request error occurred
+        if (err?.isFatalAuthOrClientError) {
+          throw err;
+        }
+
         const errMsg = err?.name === 'AbortError' ? `Timeout (${Math.round(timeoutMs / 1000)}s)` : (err as Error).message;
         errors.push(`${modelName}: ${errMsg}`);
         // If not the last model in chain, try next model
@@ -330,11 +343,14 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
     const systemPrompt = `You are an authentic, encouraging IELTS Speaking Examiner in a real interview.
 The candidate just answered your question.
 
+VIETNAMESE ENTITIES & CULTURE: The candidate is Vietnamese and may reference Vietnamese proper nouns, regional dishes, or place names (e.g., 'banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'). Recognize and treat these as valid natural proper nouns; do not incorrectly flag them as English mistakes.
+
 YOUR TASKS:
 1. "feedbackTransition": 1 concise sentence acknowledging the candidate's answer naturally (e.g. "Thank you, that offers an insightful perspective." or "That is a fascinating personal memory.")
 2. "nextQuestion": If a nextPlannedQuestion is provided, transition seamlessly into it. If not, formulate an engaging natural follow-up question.
 3. "suggestedUpgrade": Provide an upgraded Band 8.5+ native phrasing of their core idea.
-4. "mistakes": Identify any grammar or phonetic pronunciation confusions in the user's answer.
+4. "mistakes": Identify any actual grammar or phonetic pronunciation confusions in the user's answer (ignore Vietnamese proper nouns).
+5. "speechAnalysis": Brief 1-sentence note on fluency or grammatical accuracy.
 
 Return ONLY valid JSON:
 {
@@ -348,7 +364,11 @@ Return ONLY valid JSON:
       "reason": "explanation of mistake",
       "suggestedAlternative": "corrected word"
     }
-  ]
+  ],
+  "speechAnalysis": {
+    "fluencyNote": "string",
+    "grammarNote": "string"
+  }
 }`;
 
     const userPrompt = `Topic: "${params.topicTitle}" (${params.partName || 'IELTS'})
@@ -364,8 +384,8 @@ Generate JSON evaluation and transition now.`;
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.6,
         jsonMode: true,
-        maxOutputTokens: 800,
-        timeoutMs: 12_000,
+        maxOutputTokens: 450,
+        timeoutMs: 8_000,
       });
 
       const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
@@ -373,6 +393,10 @@ Generate JSON evaluation and transition now.`;
         nextQuestion: params.nextPlannedQuestion || 'Could you elaborate further on that aspect?',
         suggestedUpgrade: 'From my personal viewpoint, this has consistently played an instrumental role in shaping my mindset.',
         mistakes: [],
+        speechAnalysis: {
+          fluencyNote: 'Good natural cadence and responsiveness.',
+          grammarNote: 'Solid sentence structures.',
+        },
       });
 
       return parsed;

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -39,6 +39,33 @@ export const OnboardingWizardView: React.FC = () => {
   const [displayName, setDisplayName] = useState(user?.displayName || 'Learner');
   const [targetBand, setTargetBand] = useState<number>(user?.targetBand || 7.0);
   const [primaryGoal, setPrimaryGoal] = useState<string>('IELTS Exam Preparation');
+
+  // Load draft from localStorage on mount (Resilience)
+  useEffect(() => {
+    try {
+      const draft = localStorage.getItem('tamspeak_onboarding_draft');
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (parsed.displayName) setDisplayName(parsed.displayName);
+        if (parsed.targetBand) setTargetBand(parsed.targetBand);
+        if (parsed.primaryGoal) setPrimaryGoal(parsed.primaryGoal);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleProceedToStep2 = () => {
+    try {
+      localStorage.setItem(
+        'tamspeak_onboarding_draft',
+        JSON.stringify({ displayName, targetBand, primaryGoal })
+      );
+    } catch {
+      // ignore
+    }
+    setStep(2);
+  };
 
   // Step 2: Placement Test 3 Answers
   const [currentQIndex, setCurrentQIndex] = useState(0);
@@ -123,6 +150,18 @@ export const OnboardingWizardView: React.FC = () => {
     }
   };
 
+  const handleSkipPlacementTest = () => {
+    const defaultResult: PlacementTestResult = {
+      overallBand: 5.5,
+      cefrLevel: 'b1',
+      summaryFeedback: 'Khởi đầu với trình độ trung cấp B1. Bạn có thể tự do luyện tập các bài hội thoại và mock test để nâng cao trình độ.',
+      strengths: ['Có nền tảng ngữ pháp cơ bản', 'Sẵn sàng luyện tập giao tiếp phản xạ'],
+      weaknesses: ['Mở rộng vốn từ vựng học thuật', 'Luyện tập phát âm và độ lưu loát tự nhiên'],
+    };
+    setEvaluationResult(defaultResult);
+    setStep(3);
+  };
+
   const handleFinishOnboarding = () => {
     const finalCefr = evaluationResult?.cefrLevel ?? 'b2';
 
@@ -146,6 +185,7 @@ export const OnboardingWizardView: React.FC = () => {
     try {
       localStorage.setItem('tamspeak_user_profile', JSON.stringify(updatedProfile));
       localStorage.setItem('tamspeak_onboarding_completed', 'true');
+      localStorage.removeItem('tamspeak_onboarding_draft');
     } catch {
       // ignore
     }
@@ -251,7 +291,7 @@ export const OnboardingWizardView: React.FC = () => {
             <div className="pt-4 flex justify-end">
               <button
                 type="button"
-                onClick={() => setStep(2)}
+                onClick={handleProceedToStep2}
                 className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm shadow-md transition-all active:scale-95"
               >
                 <span>Bắt đầu Bài kiểm tra (3 câu)</span>
@@ -302,9 +342,9 @@ export const OnboardingWizardView: React.FC = () => {
               />
             </div>
 
-            {/* Mic Controls */}
-            <div className="flex items-center justify-between">
-              <div>
+            {/* Mic Controls & Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 {isRecording ? (
                   <button
                     type="button"
@@ -324,9 +364,18 @@ export const OnboardingWizardView: React.FC = () => {
                     <span>Bấm để nói bằng Microphone</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={handleSkipPlacementTest}
+                  title="Bỏ qua bài test và bắt đầu với trình độ trung cấp B1"
+                  className="px-3.5 py-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-colors"
+                >
+                  Bỏ qua bài test (Sử dụng trình độ B1)
+                </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 {currentQIndex > 0 && (
                   <button
                     type="button"

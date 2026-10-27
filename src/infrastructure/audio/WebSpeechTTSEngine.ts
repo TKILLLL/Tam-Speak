@@ -29,9 +29,29 @@ export class WebSpeechTTSEngine {
   private activePersona: string = 'Aoede (US)';
   private manualPersonaVoiceOverrides: Record<string, string> = {};
   private onVoicesLoadedCallbacks: Array<() => void> = [];
+  private keepAliveTimer: any = null;
 
   constructor() {
     this.loadVoices();
+  }
+
+  private startKeepAlive(): void {
+    this.stopKeepAlive();
+    this.keepAliveTimer = setInterval(() => {
+      if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      } else {
+        this.stopKeepAlive();
+      }
+    }, 7000);
+  }
+
+  private stopKeepAlive(): void {
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
   }
 
   private loadVoices(): void {
@@ -234,35 +254,66 @@ export class WebSpeechTTSEngine {
 
     this.stop();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    const personaConfig = this.getPersonaConfig(this.activePersona);
-
-    utterance.voice = options?.voice || this.selectedVoice || personaConfig.actualVoice;
-    utterance.pitch = options?.pitch ?? personaConfig.pitch;
-    utterance.rate = options?.rate ?? personaConfig.rate;
-
-    utterance.onstart = () => {
-      this.isSpeaking = true;
-      options?.onStart?.();
-    };
-
-    utterance.onend = () => {
-      this.isSpeaking = false;
+    const cleanText = text.trim();
+    if (!cleanText) {
       options?.onEnd?.();
-    };
-
-    utterance.onerror = (e) => {
-      this.isSpeaking = false;
-      options?.onError?.(new Error(`TTS Error: ${e.error}`));
-    };
-
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
+      return;
     }
-    window.speechSynthesis.speak(utterance);
+
+    // Split long speech into sentence chunks to circumvent the Chrome 15-second speech cutoff bug
+    const sentences = cleanText
+      .split(/(?<=[.!?\n])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    const chunks = sentences.length > 0 ? sentences : [cleanText];
+    const personaConfig = this.getPersonaConfig(this.activePersona);
+    const chosenVoice = options?.voice || this.selectedVoice || personaConfig.actualVoice;
+    const chosenPitch = options?.pitch ?? personaConfig.pitch;
+    const chosenRate = options?.rate ?? personaConfig.rate;
+
+    let chunkIndex = 0;
+    this.isSpeaking = true;
+    this.startKeepAlive();
+    options?.onStart?.();
+
+    const speakNextChunk = () => {
+      if (!this.isSpeaking || chunkIndex >= chunks.length) {
+        this.isSpeaking = false;
+        this.stopKeepAlive();
+        options?.onEnd?.();
+        return;
+      }
+
+      const chunkText = chunks[chunkIndex]!;
+      chunkIndex += 1;
+
+      const utterance = new SpeechSynthesisUtterance(chunkText);
+      utterance.voice = chosenVoice;
+      utterance.pitch = chosenPitch;
+      utterance.rate = chosenRate;
+
+      utterance.onend = () => {
+        speakNextChunk();
+      };
+
+      utterance.onerror = (e) => {
+        this.isSpeaking = false;
+        this.stopKeepAlive();
+        options?.onError?.(new Error(`TTS Error: ${e.error}`));
+      };
+
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      window.speechSynthesis.speak(utterance);
+    };
+
+    speakNextChunk();
   }
 
   public stop(): void {
+    this.stopKeepAlive();
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       this.isSpeaking = false;

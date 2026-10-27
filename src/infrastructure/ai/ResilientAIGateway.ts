@@ -328,6 +328,11 @@ export class ResilientAIGateway implements IAIGateway {
           useTamSpeakStore.getState().setActiveAIProvider(strategy.modelName);
           return { response, providerUsed: `${providerId}:${strategy.modelName}` };
         } catch (err) {
+          // Case 3: Stop fallback immediately on HTTP 400/401/403 (Invalid key or bad request)
+          if ((err as any)?.isFatalAuthOrClientError) {
+            throw err;
+          }
+
           const errorMsg = (err as Error).message;
           errors.push(`[${providerId} key#${attempt}]: ${errorMsg}`);
 
@@ -458,8 +463,8 @@ export class ResilientAIGateway implements IAIGateway {
         true,
         undefined,
         {
-          maxOutputTokens: 800,
-          timeoutMs: 12_000,
+          maxOutputTokens: 350,
+          timeoutMs: 8_000,
         }
       );
 
@@ -490,7 +495,7 @@ export class ResilientAIGateway implements IAIGateway {
       `   - If the user asks YOU a personal/roleplay question (e.g., "How many people are in your family?"), adopt a consistent, relatable persona so the two-way conversation flows naturally like talking to a real person.`,
       `2. REMEMBER FULL CONTEXT: Keep track of every detail the user shared in previous turns (family members, hobbies, feelings, stories) and build upon them naturally.`,
       `3. KEEP IT CONVERSATIONAL FOR VOICE: Keep your responses concise (1 to 3 natural sentences) so it sounds great when read aloud via Text-to-Speech. Never use rigid templates.`,
-      `4. AUTO-INTERPRET STT TYPOS: Since the user's input comes from Speech-to-Text, silently infer the intended words if there are minor homophone/phonetic recognition errors based on conversation context.`,
+      `4. AUTO-INTERPRET STT TYPOS & VIETNAMESE ENTITIES: Since the user's input comes from Speech-to-Text, silently infer intended words if there are homophone errors. If user mentions Vietnamese places or foods ('banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'), understand and respond naturally without confusing them for English errors.`,
       ``,
       `OUTPUT FORMAT: Return ONLY valid JSON:`,
       `{`,
@@ -502,7 +507,9 @@ export class ResilientAIGateway implements IAIGateway {
       `}`,
     ].join('\n');
 
-    const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
+    // Sliding Context Window: Keep last 6 dialogue turns to optimize latency (< 2s) & prevent TPM 429 rate limit
+    const recentHistory = params.conversationHistory.slice(-6);
+    const messages: ChatMessagePayload[] = recentHistory.map((turn) => ({
       role: turn.speaker === 'user' ? 'user' : 'assistant',
       content: turn.text,
     }));
@@ -519,8 +526,8 @@ export class ResilientAIGateway implements IAIGateway {
         true,
         0.85,
         {
-          maxOutputTokens: 800,
-          timeoutMs: 12_000,
+          maxOutputTokens: 350,
+          timeoutMs: 8_000,
         }
       );
 

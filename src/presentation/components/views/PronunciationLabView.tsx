@@ -38,9 +38,16 @@ export const PronunciationLabView: React.FC = () => {
     activeTab === 'needs_practice' ? !item.isMastered : item.isMastered
   );
 
+  // Guard against out-of-bounds index after card is marked mastered
+  useEffect(() => {
+    if (filteredCards.length > 0 && currentIndex >= filteredCards.length) {
+      setCurrentIndex(Math.max(0, filteredCards.length - 1));
+    }
+  }, [filteredCards.length, currentIndex]);
+
   const activeCard: MistakeItem | undefined = filteredCards[currentIndex];
 
-  const calculateSimilarity = (s1: string, s2: string): number => {
+  const calculateLevenshteinSimilarity = (s1: string, s2: string): number => {
     const a = s1.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const b = s2.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     if (a === b) return 100;
@@ -57,7 +64,7 @@ export const PronunciationLabView: React.FC = () => {
         } else {
           matrix[i]![j] = Math.min(
             matrix[i - 1]![j - 1]! + 1,
-            matrix[i]![j - 1]! + 1,
+            matrix[i][j - 1]! + 1,
             matrix[i - 1]![j]! + 1
           );
         }
@@ -67,6 +74,37 @@ export const PronunciationLabView: React.FC = () => {
     const dist = matrix[b.length]![a.length]!;
     const maxLen = Math.max(a.length, b.length);
     return Math.max(0, Math.round(((maxLen - dist) / maxLen) * 100));
+  };
+
+  const calculateSimilarity = (spoken: string, targetWord: string): number => {
+    const cleanSpoken = spoken.trim().toLowerCase();
+    const cleanTarget = targetWord.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Direct match
+    if (cleanSpoken.replace(/[^a-z0-9]/g, '') === cleanTarget) {
+      return 100;
+    }
+
+    // Individual tokens in spoken transcript
+    const tokens = cleanSpoken
+      .split(/\s+/)
+      .map((w) => w.replace(/[^a-z0-9]/g, ''))
+      .filter(Boolean);
+
+    if (tokens.includes(cleanTarget)) {
+      return 100;
+    }
+
+    const wholeSim = calculateLevenshteinSimilarity(spoken, targetWord);
+    let maxTokenSim = 0;
+    for (const t of tokens) {
+      const sim = calculateLevenshteinSimilarity(t, cleanTarget);
+      if (sim > maxTokenSim) {
+        maxTokenSim = sim;
+      }
+    }
+
+    return Math.max(wholeSim, maxTokenSim);
   };
 
   const isRecordingRef = useRef(false);
@@ -131,6 +169,14 @@ export const PronunciationLabView: React.FC = () => {
         feedback: `Keep practicing! You pronounced: "${spoken}" (Accuracy: ${accuracy}%). Listen to the standard audio and try again.`,
         isSuccess: false,
       });
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecordingRef.current) {
+      stopPronounceTest();
+    } else {
+      startPronounceTest();
     }
   };
 
@@ -373,18 +419,16 @@ export const PronunciationLabView: React.FC = () => {
                 </div>
 
                 <button
-                  onMouseDown={startPronounceTest}
-                  onMouseUp={stopPronounceTest}
-                  onTouchStart={startPronounceTest}
-                  onTouchEnd={stopPronounceTest}
-                  className={`w-full max-w-sm py-3.5 px-6 rounded-2xl font-bold text-xs flex items-center justify-center gap-2.5 transition-all shadow-sm ${
+                  type="button"
+                  onClick={toggleRecording}
+                  className={`w-full max-w-sm py-3.5 px-6 rounded-2xl font-bold text-xs flex items-center justify-center gap-2.5 transition-all shadow-sm cursor-pointer ${
                     isRecording
-                      ? 'bg-red-500 text-white ring-4 ring-red-200 scale-98'
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white ring-4 ring-rose-200 animate-pulse'
                       : 'bg-teal-600 hover:bg-teal-700 text-white active:scale-98'
                   }`}
                 >
-                  <Mic className={`w-4 h-4 ${isRecording ? 'animate-pulse' : ''}`} />
-                  <span>{isRecording ? 'Listening... Release to evaluate' : 'Hold Space or Click to Pronounce'}</span>
+                  <Mic className={`w-4 h-4 ${isRecording ? 'animate-bounce' : ''}`} />
+                  <span>{isRecording ? 'Listening... Click to Stop & Evaluate' : 'Click to Pronounce (or Hold Space)'}</span>
                 </button>
 
                 {userTranscript && (

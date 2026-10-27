@@ -47,6 +47,8 @@ export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
     });
     ws.on('timeupdate', (time) => setCurrentTime(time));
 
+    let createdUrl: string | null = null;
+
     const loadAudio = async () => {
       if (audioUrl) {
         ws.load(audioUrl);
@@ -55,8 +57,8 @@ export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
       if (recordingId) {
         const stored = await container.localAudioRepository.getAudio(recordingId);
         if (stored && stored.blob) {
-          const url = URL.createObjectURL(stored.blob);
-          ws.load(url);
+          createdUrl = URL.createObjectURL(stored.blob);
+          ws.load(createdUrl);
           return;
         }
       }
@@ -73,6 +75,13 @@ export const WaveformAudioPlayer: React.FC<WaveformAudioPlayerProps> = ({
     loadAudio();
 
     return () => {
+      if (createdUrl && typeof window !== 'undefined') {
+        try {
+          URL.revokeObjectURL(createdUrl);
+        } catch {
+          // ignore
+        }
+      }
       ws.destroy();
       waveSurferRef.current = null;
     };

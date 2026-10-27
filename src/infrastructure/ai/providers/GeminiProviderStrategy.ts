@@ -1,5 +1,6 @@
 import { IAIProviderStrategy, ChatMessagePayload } from './IAIProviderStrategy';
 import { SensitiveDataRedactor } from '../../security/SensitiveDataRedactor';
+import { normalizeGeminiContents } from '../normalizeGeminiContents';
 
 export class GeminiProviderStrategy implements IAIProviderStrategy {
   constructor(
@@ -28,28 +29,8 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent`;
 
-    // Convert messages to Gemini multi-turn contents format
-    // Multi-turn Gemini requirement: First turn must be 'user', roles must alternate
-    const nonSystem = messages.filter((m) => m.role !== 'system');
-    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
-
-    for (const msg of nonSystem) {
-      const role: 'user' | 'model' = msg.role === 'assistant' ? 'model' : 'user';
-      if (contents.length === 0) {
-        if (role === 'model') {
-          // Prepend an initial user turn so conversation starts with 'user'
-          contents.push({ role: 'user', parts: [{ text: 'Hello Alex!' }] });
-        }
-        contents.push({ role, parts: [{ text: msg.content }] });
-      } else {
-        const last = contents[contents.length - 1]!;
-        if (last.role === role) {
-          last.parts.push({ text: msg.content });
-        } else {
-          contents.push({ role, parts: [{ text: msg.content }] });
-        }
-      }
-    }
+    // Standardize multi-turn conversation format with strict user-first alternation
+    const contents = normalizeGeminiContents(messages);
 
     const requestBody: Record<string, unknown> = {
       contents,
@@ -60,6 +41,9 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         temperature,
         maxOutputTokens,
         responseMimeType: jsonMode ? 'application/json' : 'text/plain',
+        thinkingConfig: {
+          thinkingLevel: 'low',
+        },
       },
     };
 
@@ -80,6 +64,24 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
       if (!response.ok) {
         const errorText = await response.text();
         const redactedError = SensitiveDataRedactor.redactString(errorText);
+
+        // Immediate stop for non-retryable client/auth errors (Case 3)
+        if (response.status === 401 || response.status === 403) {
+          const fatalErr = new Error(
+            `API Key không hợp lệ hoặc không có quyền truy cập (HTTP ${response.status}). Vui lòng kiểm tra lại Google Gemini API Key trong mục Cài Đặt.`
+          );
+          (fatalErr as any).isFatalAuthOrClientError = true;
+          throw fatalErr;
+        }
+
+        if (response.status === 400) {
+          const fatalErr = new Error(
+            `Cấu trúc yêu cầu không hợp lệ (HTTP 400): ${redactedError.slice(0, 160)}`
+          );
+          (fatalErr as any).isFatalAuthOrClientError = true;
+          throw fatalErr;
+        }
+
         throw new Error(
           `Gemini API Error [${response.status} ${response.statusText}] on model ${this.modelName}: ${redactedError}`
         );
@@ -117,3 +119,4 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
     }
   }
 }
+
