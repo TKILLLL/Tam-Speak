@@ -30,6 +30,20 @@ export interface UpgradedExpressionResult {
   estimatedBand: BandScore;
 }
 
+export interface SpeakingAIChatResult {
+  rawSttInput: string;
+  inferredIntendedMeaning: string;
+  wasSttMisrecognized: boolean;
+  friendReply: string;
+  casualNativeTip?: string;
+  mispronouncedWords: Array<{
+    word: string;
+    ipa: string;
+    reason: string;
+  }>;
+  providerUsed: string;
+}
+
 export interface IAIGateway {
   evaluateSpeech(params: {
     contextTitle: string;
@@ -42,6 +56,11 @@ export interface IAIGateway {
     conversationHistory: readonly DialogueTurn[];
     userLatestMessage: string;
   }): Promise<RoleplayReplyResult>;
+
+  chatSpeakingAI(params: {
+    conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
+    rawSttInput: string;
+  }): Promise<SpeakingAIChatResult>;
 
   upgradeExpression(params: {
     sentence: string;

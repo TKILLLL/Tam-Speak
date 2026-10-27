@@ -3,6 +3,7 @@ import { DialogueTurn } from '../../domain/entities/PracticeSession';
 import { PracticeSessionDTO, CustomTopicDTO, UserProfileDTO } from '../../application/dtos';
 
 export type NavigationView =
+  | 'speaking_ai'
   | 'conversation'
   | 'pronunciation'
   | 'progress'
@@ -18,6 +19,24 @@ export type RightPanelTab = 'quick_start' | 'qna' | 'scoring' | 'vocab_hints';
 export type OrbState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 export type ActivePartType = 'part1' | 'part2' | 'part3' | 'full_test' | 'roleplay' | 'free_talk';
+
+export interface EphemeralMistake {
+  word: string;
+  ipa: string;
+  reason: string;
+}
+
+export interface EphemeralTurn {
+  id: string;
+  speaker: 'user' | 'ai';
+  text: string;
+  timestamp: string;
+  rawSttInput?: string;
+  inferredIntendedMeaning?: string;
+  wasSttMisrecognized?: boolean;
+  casualNativeTip?: string;
+  mispronouncedWords?: EphemeralMistake[];
+}
 
 export interface PendingTargetConfig {
   part: ActivePartType;
@@ -169,6 +188,11 @@ export interface TamSpeakState {
   pronunciationMistakes: MistakeItem[];
   addPronunciationMistake: (mistake: Omit<MistakeItem, 'id' | 'mistakeCount' | 'isMastered' | 'createdAt'>) => void;
   markMistakeMastered: (word: string) => void;
+
+  // Speaking AI: Ephemeral In-Memory Chat (RAM-only, volatile)
+  ephemeralMessages: EphemeralTurn[];
+  addEphemeralMessage: (turn: EphemeralTurn) => void;
+  clearEphemeralMessages: () => void;
 
   // Practice Configuration
   practiceMode: 'mock_test' | 'coaching' | 'free_roleplay';
@@ -415,6 +439,12 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
         m.word.toLowerCase() === word.trim().toLowerCase() ? { ...m, isMastered: true } : m
       ),
     })),
+
+  // Speaking AI: Ephemeral In-Memory Chat (RAM-only, volatile)
+  ephemeralMessages: [],
+  addEphemeralMessage: (turn) =>
+    set((state) => ({ ephemeralMessages: [...state.ephemeralMessages, turn] })),
+  clearEphemeralMessages: () => set({ ephemeralMessages: [] }),
 
   // Practice Configuration
   practiceMode: 'mock_test',

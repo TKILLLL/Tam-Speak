@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   User,
   Star,
+  Sparkles,
 } from 'lucide-react';
 import { useTamSpeakStore, NavigationView } from '../../store';
 
@@ -22,6 +23,7 @@ interface NavItemConfig {
 }
 
 const NAV_ITEMS: NavItemConfig[] = [
+  { id: 'speaking_ai', label: 'Speaking AI', shortLabel: 'Friend', icon: Sparkles },
   { id: 'conversation', label: 'Conversation Practice', shortLabel: 'Chat', icon: MessageSquare },
   { id: 'pronunciation', label: 'Pronunciation & IPA Lab', shortLabel: 'IPA', icon: Target },
   { id: 'progress', label: 'Progress & Roadmap', shortLabel: 'Stats', icon: BarChart3 },

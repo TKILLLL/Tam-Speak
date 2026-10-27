@@ -21,6 +21,7 @@ import { ImportRawDataUseCase } from '../application/use-cases/ImportRawDataUseC
 import { ChatRoleplayUseCase } from '../application/use-cases/ChatRoleplayUseCase';
 import { UpgradeBandScoreUseCase } from '../application/use-cases/UpgradeBandScoreUseCase';
 import { SpacedRepetitionReviewUseCase } from '../application/use-cases/SpacedRepetitionReviewUseCase';
+import { ChatSpeakingAIUseCase } from '../application/use-cases/ChatSpeakingAIUseCase';
 
 /**
  * DIContainer
@@ -54,6 +55,7 @@ export class DIContainer {
   public readonly chatRoleplayUseCase: ChatRoleplayUseCase;
   public readonly upgradeBandScoreUseCase: UpgradeBandScoreUseCase;
   public readonly spacedRepetitionReviewUseCase: SpacedRepetitionReviewUseCase;
+  public readonly chatSpeakingAIUseCase: ChatSpeakingAIUseCase;
 
   constructor() {
     // 1. Repositories
@@ -111,6 +113,8 @@ export class DIContainer {
     this.upgradeBandScoreUseCase = new UpgradeBandScoreUseCase(this.aiGateway);
 
     this.spacedRepetitionReviewUseCase = new SpacedRepetitionReviewUseCase(this.vocabRepository);
+
+    this.chatSpeakingAIUseCase = new ChatSpeakingAIUseCase(this.aiGateway, this.rateLimiter);
   }
 }
 

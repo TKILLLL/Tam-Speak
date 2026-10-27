@@ -11,6 +11,7 @@ import { RawDataStudioView } from '../views/RawDataStudioView';
 import { ProgressDashboardView } from '../views/ProgressDashboardView';
 import { PronunciationLabView } from '../views/PronunciationLabView';
 import { ProfileView } from '../views/ProfileView';
+import { SpeakingAIView } from '../views/SpeakingAIView';
 import { SlidersHorizontal, AlertTriangle, AlertCircle, RefreshCw, PanelRightOpen } from 'lucide-react';
 
 export const MainLayout: React.FC = () => {
@@ -52,6 +53,8 @@ export const MainLayout: React.FC = () => {
 
   const renderCurrentView = () => {
     switch (currentView) {
+      case 'speaking_ai':
+        return <SpeakingAIView />;
       case 'conversation':
       case 'ielts':
       case 'scratchpad':

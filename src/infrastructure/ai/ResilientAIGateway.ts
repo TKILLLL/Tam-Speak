@@ -4,6 +4,7 @@ import {
   EvaluationResult,
   RoleplayReplyResult,
   UpgradedExpressionResult,
+  SpeakingAIChatResult,
 } from '../../domain/interfaces/IAIGateway';
 import { BandScore } from '../../domain/value-objects/BandScore';
 import { DialogueTurn } from '../../domain/entities/PracticeSession';
@@ -70,6 +71,23 @@ const upgradeExpressionOutputSchema = z.object({
   explanation: z.string(),
   nativeIdiomsUsed: z.array(z.string()),
   estimatedBand: z.number().min(0).max(9),
+});
+
+const speakingAIChatOutputSchema = z.object({
+  raw_stt_input: z.string().optional(),
+  inferred_intended_meaning: z.string().optional(),
+  was_stt_misrecognized: z.boolean().optional(),
+  friend_reply: z.string(),
+  casual_native_tip: z.string().optional(),
+  mispronounced_words: z
+    .array(
+      z.object({
+        word: z.string(),
+        ipa: z.string(),
+        reason: z.string(),
+      })
+    )
+    .optional(),
 });
 
 export interface KeyPoolEntry {
@@ -540,6 +558,130 @@ export class ResilientAIGateway implements IAIGateway {
       suggestedCorrection: undefined,
       ipaCorrections: [],
       providerUsed: 'offline:conversational-evaluator',
+    };
+  }
+
+  /**
+   * Speaking AI: Free Casual Conversation with Contextual Phonetic Auto-Correction
+   * Persona: Alex (Native Best Friend, Zero Topics, Casual English)
+   * Token Optimization: Sliding Window (last 6 dialogue turns)
+   */
+  public async chatSpeakingAI(params: {
+    conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
+    rawSttInput: string;
+  }): Promise<SpeakingAIChatResult> {
+    const rawSystemPrompt = [
+      `You are "Alex", an authentic, energetic, and supportive native English speaker chatting casually with your close friend.`,
+      `CORE PRINCIPLES:`,
+      `1. ZERO TOPIC CONSTRAINT: There are no academic exams or set topics here. Talk about anything: daily life, feelings, weekend plans, movies, banter, food, work, or hobbies.`,
+      `2. CASUAL NATIVE STYLE: Speak like a real modern friend. Use contractions (I'm, you're, that's, gonna, wanna), natural discourse markers, and everyday spoken idioms ("what's up", "totally", "no way", "gotcha", "hang out", "fair enough", "I feel you").`,
+      `3. BREVITY & RHYTHM: Keep your reply between 1 and 3 sentences. Maintain an engaging, fast-paced back-and-forth conversational rhythm. Never lecture, scold, or interview.`,
+      `4. CONTEXTUAL PHONETIC AUTO-CORRECTION:`,
+      `   The user talks via microphone and speech recognition (STT), which frequently mishears phonetic homophones or non-native pronunciation (e.g. "be a true for respond" instead of "that is a thoughtful response", "eye one go" instead of "I want to go").`,
+      `   - Analyze raw_stt_input against recent conversation context and sound-alike phonetic patterns.`,
+      `   - If STT was misrecognized: set was_stt_misrecognized: true, infer inferred_intended_meaning, and note mispronounced_words with phonetic error reason.`,
+      `   - If STT was natural and accurate: set was_stt_misrecognized: false, and inferred_intended_meaning: raw_stt_input.`,
+      `   - In friend_reply: respond naturally and conversationally to inferred_intended_meaning as a real friend (never scold them for speech recognition errors).`,
+      `   - In casual_native_tip: offer a brief 1-sentence tip on a natural way native speakers express this (or empty string if already good).`,
+      `OUTPUT FORMAT: Return ONLY valid JSON:`,
+      `{`,
+      `  "raw_stt_input": "...",`,
+      `  "inferred_intended_meaning": "...",`,
+      `  "was_stt_misrecognized": true/false,`,
+      `  "friend_reply": "...",`,
+      `  "casual_native_tip": "...",`,
+      `  "mispronounced_words": [ { "word": "...", "ipa": "/.../", "reason": "..." } ]`,
+      `}`,
+    ].join('\n');
+
+    const hardenedSystemPrompt = PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt);
+
+    // Sliding Window Optimization: Take at most 6 previous turns
+    const recentTurns = params.conversationHistory.slice(-6);
+    const messages: ChatMessagePayload[] = recentTurns.map((turn) => ({
+      role: turn.speaker === 'user' ? 'user' : 'assistant',
+      content: turn.text,
+    }));
+
+    const isolatedInput = PromptSecurityGuard.isolateUserInput(params.rawSttInput);
+    messages.push({
+      role: 'user',
+      content: isolatedInput,
+    });
+
+    const providerChain = ['gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
+    try {
+      const { response, providerUsed } = await this.executeWithFallback(
+        providerChain,
+        hardenedSystemPrompt,
+        messages,
+        true
+      );
+
+      const parsed = PromptSecurityGuard.parseAndValidateJSON(response, speakingAIChatOutputSchema);
+
+      return {
+        rawSttInput: params.rawSttInput,
+        inferredIntendedMeaning: parsed.inferred_intended_meaning || params.rawSttInput,
+        wasSttMisrecognized: Boolean(parsed.was_stt_misrecognized),
+        friendReply: parsed.friend_reply,
+        casualNativeTip: parsed.casual_native_tip || undefined,
+        mispronouncedWords: parsed.mispronounced_words || [],
+        providerUsed,
+      };
+    } catch {
+      return this.generateSimulatedSpeakingAIReply(params.rawSttInput);
+    }
+  }
+
+  private generateSimulatedSpeakingAIReply(rawSttInput: string): SpeakingAIChatResult {
+    const lower = rawSttInput.toLowerCase();
+    
+    // Check for common phonetic confusions or tricky pronunciation
+    let inferredMeaning = rawSttInput;
+    let wasMisrecognized = false;
+    const mispronounced: Array<{ word: string; ipa: string; reason: string }> = [];
+
+    if (lower.includes('true for respond') || lower.includes('true for') || lower.includes('truthful respond')) {
+      inferredMeaning = rawSttInput.replace(/be a true for respond|true for respond|truthful respond/gi, 'thoughtful response');
+      wasMisrecognized = true;
+      mispronounced.push({
+        word: 'thoughtful',
+        ipa: '/ˈθɔːtfəl/',
+        reason: 'Voiceless dental fricative /θ/ and consonant blend sounded like "true for"',
+      });
+    }
+
+    let friendReply = "Haha totally! That is so true. What else have you been up to today?";
+    let nativeTip = "";
+
+    if (lower.includes('hello') || lower.includes('hey') || lower.includes('hi') || lower.includes("what's up") || lower.includes('how are you')) {
+      friendReply = "Hey! Doing great here, just chilling. How is your day treating you so far?";
+      nativeTip = "To sound extra casual, you can say 'Hey, what's good?' or 'Not much, just taking it easy!'";
+    } else if (lower.includes('tired') || lower.includes('exhausted') || lower.includes('sleepy') || lower.includes('busy')) {
+      friendReply = "Oh man, I totally feel you. Get some good rest tonight, do not push yourself too hard!";
+      nativeTip = "'I am beat' or 'I am wiped out' are great native ways to express being tired.";
+    } else if (lower.includes('movie') || lower.includes('film') || lower.includes('show') || lower.includes('netflix')) {
+      friendReply = "No way, I love that genre! Any recommendations on what I should watch next?";
+      nativeTip = "You can ask 'Have you caught any good shows lately?' for natural small talk.";
+    } else if (lower.includes('weekend') || lower.includes('tomorrow') || lower.includes('sunday') || lower.includes('saturday')) {
+      friendReply = "Sounds like fun! Hope you get to recharge and do something you really enjoy.";
+      nativeTip = "Try saying 'I am looking forward to unwinding' instead of 'I want to relax'.";
+    } else if (lower.includes('work') || lower.includes('boss') || lower.includes('office') || lower.includes('project')) {
+      friendReply = "Work can be a grind sometimes, but you are handling it like a champ! Hang in there.";
+    } else if (lower.includes('food') || lower.includes('eat') || lower.includes('lunch') || lower.includes('dinner') || lower.includes('coffee')) {
+      friendReply = "Now you are making me hungry! What kind of food are you in the mood for?";
+      nativeTip = "'I am craving some...' is the go-to native phrase for wanting specific food.";
+    }
+
+    return {
+      rawSttInput,
+      inferredIntendedMeaning: inferredMeaning,
+      wasSttMisrecognized: wasMisrecognized,
+      friendReply,
+      casualNativeTip: nativeTip || undefined,
+      mispronouncedWords: mispronounced,
+      providerUsed: 'offline:casual-friend-engine',
     };
   }
 

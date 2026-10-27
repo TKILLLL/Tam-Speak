@@ -188,6 +188,15 @@ async function runPhase3Tests(): Promise<void> {
       nativeIdiomsUsed: ['drawn to'],
       estimatedBand: BandScore.create(8.0),
     }),
+    chatSpeakingAI: async (params: any) => ({
+      rawSttInput: params.rawSttInput,
+      inferredIntendedMeaning: params.rawSttInput,
+      wasSttMisrecognized: false,
+      friendReply: 'Hey! That sounds awesome!',
+      casualNativeTip: undefined,
+      mispronouncedWords: [],
+      providerUsed: 'gemini_flash',
+    }),
   };
 
   const { EvaluateSpeechUseCase } = await import('../application/use-cases/EvaluateSpeechUseCase');
