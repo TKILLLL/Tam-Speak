@@ -8,11 +8,11 @@ export const DEFAULT_GEMINI_FALLBACK_KEY =
     : Buffer.from('QVEuQWI4Uk42SXJYUk9uWmUyd1JOTUluOGdUc211dlAxWFNmRVZXaHZ4UDhqWFZ6VEhfOWc=', 'base64').toString('utf-8');
 
 export const GEMINI_MODELS_FALLBACK_CHAIN = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash-lite',
+  'gemini-3-flash-preview',
   'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.5-flash',
-  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
@@ -113,39 +113,51 @@ export class AIService {
       messages,
       temperature = 0.6,
       jsonMode = false,
-      maxOutputTokens = 800,
-      timeoutMs = 15_000,
+      maxOutputTokens = 300,
+      timeoutMs = 4_500,
     } = params;
     const apiKey = this.getActiveApiKey();
 
     // Standardize contents with strict user-first multi-turn alternation (Case 1)
     const contents = normalizeGeminiContents(messages);
 
-    const requestPayload = {
-      contents,
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      generationConfig: {
-        temperature,
-        maxOutputTokens,
-        responseMimeType: jsonMode ? 'application/json' : 'text/plain',
-        thinkingConfig: {
-          thinkingLevel: 'low',
-        },
-      },
-    };
-
     const errors: string[] = [];
+    const overallDeadline = Date.now() + 6_000; // Hard ceiling of 6.0s (capped strictly at 5-7s)
 
     // Loop over fallback chain starting from activeModelIndex
     for (let i = 0; i < GEMINI_MODELS_FALLBACK_CHAIN.length; i++) {
+      const remainingTime = overallDeadline - Date.now();
+      if (remainingTime < 800) {
+        break; // Approaching deadline, prevent blocking user
+      }
+
       const modelIndex = (this.activeModelIndex + i) % GEMINI_MODELS_FALLBACK_CHAIN.length;
       const modelName = GEMINI_MODELS_FALLBACK_CHAIN[modelIndex]!;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
+      const thinkingLevel =
+        modelName === 'gemini-3-flash-preview' || modelName === 'gemini-3.6-flash'
+          ? 'minimal'
+          : 'low';
+
+      const requestPayload = {
+        contents,
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        generationConfig: {
+          temperature,
+          maxOutputTokens,
+          responseMimeType: jsonMode ? 'application/json' : 'text/plain',
+          thinkingConfig: {
+            thinkingLevel,
+          },
+        },
+      };
+
+      const perAttemptTimeout = Math.min(timeoutMs, remainingTime);
       const controller = new AbortController();
-      const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutTimer = setTimeout(() => controller.abort(), perAttemptTimeout);
 
       try {
         const response = await fetch(url, {
@@ -156,6 +168,7 @@ export class AIService {
           },
           body: JSON.stringify(requestPayload),
           signal: controller.signal,
+          keepalive: true,
         });
 
         clearTimeout(timeoutTimer);
@@ -293,8 +306,8 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.5,
         jsonMode: true,
-        maxOutputTokens: 800,
-        timeoutMs: 12_000,
+        maxOutputTokens: 450,
+        timeoutMs: 5_500,
       });
 
       const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
@@ -384,8 +397,8 @@ Generate JSON evaluation and transition now.`;
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.6,
         jsonMode: true,
-        maxOutputTokens: 450,
-        timeoutMs: 8_000,
+        maxOutputTokens: 280,
+        timeoutMs: 4_500,
       });
 
       const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
@@ -446,8 +459,8 @@ Return ONLY valid JSON:
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.3,
         jsonMode: true,
-        maxOutputTokens: 1200,
-        timeoutMs: 18_000,
+        maxOutputTokens: 500,
+        timeoutMs: 5_500,
       });
 
       const parsed = this.cleanAndParseJson<PlacementTestResult>(raw, {

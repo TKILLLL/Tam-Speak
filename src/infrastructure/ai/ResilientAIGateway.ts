@@ -97,38 +97,40 @@ export interface KeyPoolEntry {
 }
 
 export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
-  'gemini_3_8_flash',
-  'gemini_3_5_flash_lite',
+  'gemini_3_flash_preview',
   'gemini_3_6_flash',
+  'gemini_3_5_flash_lite',
   'gemini_3_5_flash',
-  'gemini_3_1_flash_lite',
+  'gemini_3_8_flash',
 ] as const;
 
 /**
  * ResilientAIGateway
  * Production Google Gemini 3 Native REST Gateway:
  * - Direct REST fetch with X-goog-api-key header
- * - Automatic Fallback Chain: gemini-3.8-flash -> gemini-3.5-flash-lite -> gemini-3.6-flash -> gemini-3.5-flash -> gemini-3.1-flash-lite
+ * - Automatic Fallback Chain: gemini-3-flash-preview -> gemini-3.6-flash -> gemini-3.5-flash-lite -> gemini-3.5-flash -> gemini-3.8-flash
  * - Automatic failover on 429/503/404 with instant badge update in Header
  * - Unified Key Resolution (BYOK from LocalStorage -> Env -> Secure Fallback)
+ * - Ultra-low latency optimization with sub-2s responses capped strictly <= 5-7s
  */
 export class ResilientAIGateway implements IAIGateway {
   private readonly strategies: Map<string, IAIProviderStrategy> = new Map();
   private readonly circuitBreakers: Map<string, CircuitBreaker> = new Map();
   private readonly keyPools: Map<string, KeyPoolEntry> = new Map();
   private readonly personalKeys: Map<string, string> = new Map();
+  private activeProviderIndex = 0;
 
   constructor(
     customKeyConfig?: {
       geminiKeys?: string[];
     }
   ) {
-    // Register active official Gemini 3 Models in priority order (ultra-intelligent & fast flash first)
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_8_flash', 'gemini-3.8-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash_lite', 'gemini-3.5-flash-lite'));
+    // Register active official Gemini 3 Models in priority order (ultra-low latency first)
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_flash_preview', 'gemini-3-flash-preview'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_6_flash', 'gemini-3.6-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash_lite', 'gemini-3.5-flash-lite'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash', 'gemini-3.5-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_1_flash_lite', 'gemini-3.1-flash-lite'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_8_flash', 'gemini-3.8-flash'));
 
     // Initialize Key Pool with unified active key
     const initialKey = getActiveGeminiApiKey();
@@ -223,7 +225,7 @@ export class ResilientAIGateway implements IAIGateway {
     try {
       const base64Audio = await this.blobToBase64(audioBlob);
       const mimeType = audioBlob.type || 'audio/webm';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent`;
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -282,6 +284,7 @@ export class ResilientAIGateway implements IAIGateway {
 
   /**
    * Core Fallback Chain: cycles through Gemini models on 429, 503, 404
+   * Ultra-low latency optimization: remembers active working model and strictly caps latency at 6.0s (<= 5-7s)
    */
   private async executeWithFallback(
     providerChain: readonly string[] | string[],
@@ -295,8 +298,16 @@ export class ResilientAIGateway implements IAIGateway {
     }
   ): Promise<{ response: string; providerUsed: string }> {
     const errors: string[] = [];
+    const overallDeadline = Date.now() + 6_000; // Hard ceiling of 6.0s (capped strictly at 5-7s)
 
-    for (const providerId of providerChain) {
+    for (let i = 0; i < providerChain.length; i++) {
+      const remainingTime = overallDeadline - Date.now();
+      if (remainingTime < 800) {
+        break; // Approaching deadline, prevent blocking user
+      }
+
+      const currentIndex = (this.activeProviderIndex + i) % providerChain.length;
+      const providerId = providerChain[currentIndex]!;
       const strategy = this.strategies.get(providerId);
       const breaker = this.circuitBreakers.get(providerId);
 
@@ -309,6 +320,7 @@ export class ResilientAIGateway implements IAIGateway {
 
       const pool = this.keyPools.get('gemini');
       const attemptsCount = Math.max(1, pool?.keys.length ?? 1);
+      const perAttemptTimeout = Math.min(options?.timeoutMs || 4_500, remainingTime);
 
       for (let attempt = 0; attempt < attemptsCount; attempt++) {
         try {
@@ -320,10 +332,11 @@ export class ResilientAIGateway implements IAIGateway {
             jsonMode,
             temperature,
             maxOutputTokens: options?.maxOutputTokens,
-            timeoutMs: options?.timeoutMs,
+            timeoutMs: perAttemptTimeout,
           });
 
           breaker.recordSuccess();
+          this.activeProviderIndex = currentIndex;
           // Update active model badge in header
           useTamSpeakStore.getState().setActiveAIProvider(strategy.modelName);
           return { response, providerUsed: `${providerId}:${strategy.modelName}` };
@@ -412,8 +425,8 @@ export class ResilientAIGateway implements IAIGateway {
       true,
       0.3,
       {
-        maxOutputTokens: 1800,
-        timeoutMs: 20_000,
+        maxOutputTokens: 850,
+        timeoutMs: 6_000,
       }
     );
 
@@ -463,8 +476,8 @@ export class ResilientAIGateway implements IAIGateway {
         true,
         undefined,
         {
-          maxOutputTokens: 350,
-          timeoutMs: 8_000,
+          maxOutputTokens: 250,
+          timeoutMs: 4_500,
         }
       );
 
@@ -526,8 +539,8 @@ export class ResilientAIGateway implements IAIGateway {
         true,
         0.85,
         {
-          maxOutputTokens: 350,
-          timeoutMs: 8_000,
+          maxOutputTokens: 250,
+          timeoutMs: 4_500,
         }
       );
 
@@ -627,8 +640,8 @@ export class ResilientAIGateway implements IAIGateway {
       true,
       0.5,
       {
-        maxOutputTokens: 800,
-        timeoutMs: 15_000,
+        maxOutputTokens: 350,
+        timeoutMs: 5_000,
       }
     );
 

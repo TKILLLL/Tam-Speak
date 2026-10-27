@@ -19,9 +19,9 @@ export class CircuitBreaker {
   constructor(
     public readonly name: string,
     private readonly config: CircuitBreakerConfig = {
-      failureThreshold: 3,
-      recoveryTimeoutMs: 30_000,
-      halfOpenSuccessThreshold: 2,
+      failureThreshold: 2,
+      recoveryTimeoutMs: 20_000,
+      halfOpenSuccessThreshold: 1,
     }
   ) {}
 
