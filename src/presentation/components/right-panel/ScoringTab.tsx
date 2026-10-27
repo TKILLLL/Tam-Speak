@@ -236,12 +236,14 @@ export const ScoringTab: React.FC = () => {
 
       setEvaluationData(evaluated);
 
-      // Sync overall score to user profile and roadmap
+      // Sync overall score and practice minutes to user profile and roadmap
       const newCefr = convertBandToCEFR(evaluated.overallScore);
+      const sessionMinutes = Math.max(1, Math.round(totalSpeechSeconds / 60));
       if (user) {
         const updatedUser = {
           ...user,
           currentLevel: newCefr,
+          totalPracticeMinutes: (user.totalPracticeMinutes || 0) + sessionMinutes,
         };
         setUser(updatedUser);
         try {
@@ -277,12 +279,14 @@ export const ScoringTab: React.FC = () => {
 
       setEvaluationData(fallbackResult);
 
-      // Sync overall score to user profile and roadmap
+      // Sync overall score and practice minutes to user profile and roadmap
       const fallbackCefr = convertBandToCEFR(fallbackResult.overallScore);
+      const fallbackMinutes = Math.max(1, Math.round(totalSpeechSeconds / 60));
       if (user) {
         const updatedUser = {
           ...user,
           currentLevel: fallbackCefr,
+          totalPracticeMinutes: (user.totalPracticeMinutes || 0) + fallbackMinutes,
         };
         setUser(updatedUser);
         try {

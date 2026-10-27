@@ -32,6 +32,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
     // Standardize multi-turn conversation format with strict user-first alternation
     const contents = normalizeGeminiContents(messages);
 
+    const isGemini25 = this.modelName.includes('2.5');
     const thinkingLevel =
       this.modelName === 'gemini-3-flash-preview' || this.modelName === 'gemini-3.6-flash'
         ? 'minimal'
@@ -46,9 +47,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         temperature,
         maxOutputTokens,
         responseMimeType: jsonMode ? 'application/json' : 'text/plain',
-        thinkingConfig: {
-          thinkingLevel,
-        },
+        ...(isGemini25 ? {} : { thinkingConfig: { thinkingLevel } }),
       },
     };
 

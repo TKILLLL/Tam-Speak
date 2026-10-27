@@ -102,13 +102,15 @@ export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
   'gemini_3_5_flash_lite',
   'gemini_3_5_flash',
   'gemini_3_8_flash',
+  'gemini_2_5_flash',
+  'gemini_2_5_pro',
 ] as const;
 
 /**
  * ResilientAIGateway
- * Production Google Gemini 3 Native REST Gateway:
+ * Production Google Gemini Native REST Gateway:
  * - Direct REST fetch with X-goog-api-key header
- * - Automatic Fallback Chain: gemini-3-flash-preview -> gemini-3.6-flash -> gemini-3.5-flash-lite -> gemini-3.5-flash -> gemini-3.8-flash
+ * - Automatic Fallback Chain: gemini-3-flash-preview -> gemini-3.6-flash -> gemini-3.5-flash-lite -> gemini-3.5-flash -> gemini-3.8-flash -> gemini-2.5-flash -> gemini-2.5-pro
  * - Automatic failover on 429/503/404 with instant badge update in Header
  * - Unified Key Resolution (BYOK from LocalStorage -> Env -> Secure Fallback)
  * - Ultra-low latency optimization with sub-2s responses capped strictly <= 5-7s
@@ -125,12 +127,14 @@ export class ResilientAIGateway implements IAIGateway {
       geminiKeys?: string[];
     }
   ) {
-    // Register active official Gemini 3 Models in priority order (ultra-low latency first)
+    // Register active official Gemini Models in priority order (ultra-low latency first)
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_flash_preview', 'gemini-3-flash-preview'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_6_flash', 'gemini-3.6-flash'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash_lite', 'gemini-3.5-flash-lite'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash', 'gemini-3.5-flash'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_3_8_flash', 'gemini-3.8-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash', 'gemini-2.5-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
 
     // Initialize Key Pool with unified active key
     const initialKey = getActiveGeminiApiKey();

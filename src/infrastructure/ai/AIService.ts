@@ -13,6 +13,8 @@ export const GEMINI_MODELS_FALLBACK_CHAIN = [
   'gemini-3.5-flash-lite',
   'gemini-3.5-flash',
   'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
@@ -135,12 +137,13 @@ export class AIService {
       const modelName = GEMINI_MODELS_FALLBACK_CHAIN[modelIndex]!;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
+      const isGemini25 = modelName.includes('2.5');
       const thinkingLevel =
         modelName === 'gemini-3-flash-preview' || modelName === 'gemini-3.6-flash'
           ? 'minimal'
           : 'low';
 
-      const requestPayload = {
+      const requestPayload: Record<string, unknown> = {
         contents,
         systemInstruction: {
           parts: [{ text: systemPrompt }],
@@ -149,9 +152,7 @@ export class AIService {
           temperature,
           maxOutputTokens,
           responseMimeType: jsonMode ? 'application/json' : 'text/plain',
-          thinkingConfig: {
-            thinkingLevel,
-          },
+          ...(isGemini25 ? {} : { thinkingConfig: { thinkingLevel } }),
         },
       };
 

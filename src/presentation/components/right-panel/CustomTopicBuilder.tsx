@@ -10,7 +10,7 @@ interface CustomTopicBuilderProps {
 }
 
 export const CustomTopicBuilder: React.FC<CustomTopicBuilderProps> = ({ onBack, onTopicCreated }) => {
-  const { user, setActiveTopic, setOrbState, setLastAIMessage } = useTamSpeakStore();
+  const { user, setActiveTopic, setOrbState, setLastAIMessage, addCustomRoleplayTopic } = useTamSpeakStore();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,6 +52,19 @@ export const CustomTopicBuilder: React.FC<CustomTopicBuilderProps> = ({ onBack, 
         targetKeywords: keywords,
         targetLevel,
         isPublic,
+      });
+
+      // Save custom topic to store so it permanently stays in Roleplay & Chat list
+      addCustomRoleplayTopic({
+        id: topicDto.id,
+        title: topicDto.title,
+        description: topicDto.description,
+        aiRole: topicDto.aiRole,
+        userRole: topicDto.userRole,
+        duration: 'Custom',
+        tags: ['Custom Roleplay', topicDto.aiRole],
+        targetKeywords: topicDto.targetKeywords,
+        createdAt: topicDto.createdAt,
       });
 
       // Activate topic in state

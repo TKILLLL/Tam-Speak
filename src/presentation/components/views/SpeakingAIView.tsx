@@ -8,6 +8,7 @@ import {
   AlertCircle,
   CheckCircle,
   Lightbulb,
+  Square,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTamSpeakStore, EphemeralTurn, OrbState } from '../../store';
@@ -85,6 +86,7 @@ export const SpeakingAIView: React.FC = () => {
   const isHoldingRef = useRef(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const isMountedRef = useRef(false);
+  const lastApiCallTimestampRef = useRef<number>(0);
 
   // Sync real-time audio amplitude to store for Mini Glowing Orb
   useEffect(() => {
@@ -254,6 +256,16 @@ export const SpeakingAIView: React.FC = () => {
     }));
 
     try {
+      // Silent Rate Limit Pacing: Ensure at least 3.8s spacing between consecutive AI calls while showing 'thinking'
+      const MIN_INTERVAL_MS = 3800;
+      const now = Date.now();
+      const elapsed = now - lastApiCallTimestampRef.current;
+      if (lastApiCallTimestampRef.current > 0 && elapsed < MIN_INTERVAL_MS) {
+        const silentDelay = MIN_INTERVAL_MS - elapsed;
+        await new Promise((resolve) => setTimeout(resolve, silentDelay));
+      }
+      lastApiCallTimestampRef.current = Date.now();
+
       const result = await container.chatSpeakingAIUseCase.execute({
         userId,
         rawSttInput: spokenTranscript,
@@ -683,34 +695,62 @@ export const SpeakingAIView: React.FC = () => {
               </div>
             </div>
 
-            {/* Center: Prominent Push-to-Talk Button */}
-            <button
-              onMouseDown={startVoiceInput}
-              onMouseUp={stopVoiceInput}
-              onTouchStart={startVoiceInput}
-              onTouchEnd={stopVoiceInput}
-              className={`flex-1 max-w-sm flex items-center justify-center gap-2.5 px-6 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-sm active:scale-95 border cursor-pointer ${
-                isHolding
-                  ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-md'
-                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300 hover:shadow-md'
-              }`}
-            >
-              {isHolding ? (
-                <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
-                  </span>
-                  <Mic className="w-4 h-4 animate-pulse" />
-                  <span>Release to Send</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4 text-teal-600" />
-                  <span>Hold [Space] to Talk</span>
-                </>
-              )}
-            </button>
+            {/* Center Controls: 1-Click Toggle + Hold Space to Talk */}
+            <div className="flex-1 max-w-md flex items-center justify-center gap-2">
+              {/* Toggle 1-Click Recording Button (Ấn 1 lần để bật ghi âm, ấn 1 lần nữa để tắt/gửi) */}
+              <button
+                type="button"
+                onClick={isHolding ? stopVoiceInput : startVoiceInput}
+                title={isHolding ? 'Bấm để gửi câu trả lời' : 'Bấm 1 lần để mở ghi âm, bấm lần nữa để gửi'}
+                className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active:scale-95 border cursor-pointer ${
+                  isHolding
+                    ? 'bg-red-500 hover:bg-red-600 text-white border-red-400 ring-2 ring-red-400/20 shadow-md animate-pulse'
+                    : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-500 hover:shadow-md'
+                }`}
+              >
+                {isHolding ? (
+                  <>
+                    <Square className="w-3.5 h-3.5 fill-white" />
+                    <span>Bấm gửi</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>Bấm nói</span>
+                  </>
+                )}
+              </button>
+
+              {/* Push-to-Talk (Hold [Space]) */}
+              <button
+                type="button"
+                onMouseDown={startVoiceInput}
+                onMouseUp={stopVoiceInput}
+                onTouchStart={startVoiceInput}
+                onTouchEnd={stopVoiceInput}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active:scale-95 border cursor-pointer ${
+                  isHolding
+                    ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-md'
+                    : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300 hover:shadow-md'
+                }`}
+              >
+                {isHolding ? (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+                    </span>
+                    <Mic className="w-4 h-4 animate-pulse" />
+                    <span>Thả để gửi</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-4 h-4 text-teal-600" />
+                    <span>Giữ [Space]</span>
+                  </>
+                )}
+              </button>
+            </div>
 
             {/* Right: Auto VAD & Clear Chat Actions */}
             <div className="flex items-center gap-1.5 sm:gap-2">

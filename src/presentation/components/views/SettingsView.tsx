@@ -138,6 +138,13 @@ export const SettingsView: React.FC = () => {
       container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
     }
 
+    const voiceOverrides = container.speechTTSEngine.getManualVoiceOverrides();
+    try {
+      window.localStorage.setItem('tamspeak_voice_overrides', JSON.stringify(voiceOverrides));
+    } catch {
+      // ignore
+    }
+
     const settingsBundle = {
       geminiKey: trimmedKey,
       activeVoice: activeAIVoice,
@@ -145,6 +152,7 @@ export const SettingsView: React.FC = () => {
       feedbackLanguage,
       practiceMode,
       targetLevel,
+      voiceOverrides,
       updatedAt: new Date().toISOString(),
     };
 

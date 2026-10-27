@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Mic, Radio } from 'lucide-react';
+import { Mic, Radio, Square } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer';
 import { container } from '../../../di/DIContainer';
 import { PracticeSession, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { aiService } from '../../../infrastructure/ai/AIService';
-import { getRandomIELTSQuestion } from '../../../infrastructure/data/ieltsQuestionBank';
 
 const RANDOM_STARTER_TOPICS = [
   {
@@ -231,7 +230,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     const audioUrl = recResult?.blob ? URL.createObjectURL(recResult.blob) : undefined;
     const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);
 
-    // 5. Plan next question according to IELTS mode / Full Mock / Conversation
+    // 5. Plan next question dynamically using AI (zero static question bank data)
     let plannedNextQuestion = '';
     let shouldAutoTriggerScoring = false;
 
@@ -239,28 +238,22 @@ export const HoldSpaceToTalk: React.FC = () => {
     if (currentMock) {
       if (currentMock.currentPart === 1) {
         const nextIdx = currentMock.questionIndex + 1;
-        if (nextIdx < currentMock.part1Questions.length) {
-          plannedNextQuestion = currentMock.part1Questions[nextIdx]!;
+        if (nextIdx < 3) {
           setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
         } else {
-          // Completed Part 1 -> Transition to Part 2!
+          // Completed Part 1 -> Transition to Part 2 Cue Card dynamically
           setActivePart('part2');
           setMockTestProgress({ ...currentMock, currentPart: 2, questionIndex: 0 });
-          if (currentMock.part2CueCard) {
-            plannedNextQuestion = `Now let us proceed to Part 2: Individual Long Turn. Your cue card topic is: "${currentMock.part2CueCard.title}".\n\nYou should say:\n${currentMock.part2CueCard.cueBulletPoints.map((pt) => `• ${pt}`).join('\n')}\n\nYou have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press and hold Space to speak!`;
-          } else {
-            plannedNextQuestion = 'Now let us proceed to Part 2: Individual Long Turn.';
-          }
+          plannedNextQuestion = `Now let us proceed to Part 2: Individual Long Turn. Your topic is: "${activeTopicTitle || 'Your memorable experience'}". Please describe a significant moment related to this topic, who was with you, what occurred, and why it influenced you. You have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press the microphone button to begin!`;
         }
       } else if (currentMock.currentPart === 2) {
-        // Completed Part 2 -> Transition to Part 3!
+        // Completed Part 2 -> Transition to Part 3 Analytical Discussion dynamically
         setActivePart('part3');
         setMockTestProgress({ ...currentMock, currentPart: 3, questionIndex: 0 });
-        plannedNextQuestion = currentMock.part3Questions[0] || 'In your opinion, how does this topic affect our wider society?';
+        plannedNextQuestion = `Thank you. Now let us move on to Part 3: Two-Way Analytical Discussion on "${activeTopicTitle || 'this topic'}". How do you see the broader societal impact of this issue developing over the next decade?`;
       } else if (currentMock.currentPart === 3) {
         const nextIdx = currentMock.questionIndex + 1;
-        if (nextIdx < currentMock.part3Questions.length) {
-          plannedNextQuestion = currentMock.part3Questions[nextIdx]!;
+        if (nextIdx < 3) {
           setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
         } else {
           // Full Mock completed!
@@ -269,14 +262,6 @@ export const HoldSpaceToTalk: React.FC = () => {
           setMockTestProgress(null);
         }
       }
-    } else if (activePart === 'part1' || activePart === 'part2' || activePart === 'part3') {
-      const excludeIds = dialogueTurns.map((t) => t.id);
-      const picked = getRandomIELTSQuestion({
-        part: activePart,
-        topicIdOrTitle: activeTopicTitle || activeTopic?.title,
-        excludeIds,
-      });
-      plannedNextQuestion = picked.question;
     }
 
     // 6. Call real Gemini AI Examiner Turn Evaluation
@@ -488,14 +473,37 @@ export const HoldSpaceToTalk: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center gap-3 mt-8 select-none">
-      <div className="flex items-center gap-4">
-        {/* Main Push-To-Talk Button */}
+      <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-center">
+        {/* Toggle 1-Click Recording Button (Ấn 1 lần để bật ghi âm, ấn 1 lần nữa để tắt/gửi) */}
+        <button
+          onClick={isHolding ? stopVoiceInput : startVoiceInput}
+          title={isHolding ? 'Bấm để hoàn thành và gửi câu trả lời' : 'Bấm 1 lần để mở ghi âm, bấm lần nữa để gửi'}
+          className={`flex items-center gap-2.5 px-6 py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active:scale-95 border cursor-pointer ${
+            isHolding
+              ? 'bg-red-500 hover:bg-red-600 text-white border-red-400 ring-4 ring-red-400/20 shadow-lg animate-pulse'
+              : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-500 hover:shadow-lg'
+          }`}
+        >
+          {isHolding ? (
+            <>
+              <Square className="w-4 h-4 fill-white" />
+              <span>Bấm để gửi</span>
+            </>
+          ) : (
+            <>
+              <Mic className="w-4 h-4" />
+              <span>Bấm để nói</span>
+            </>
+          )}
+        </button>
+
+        {/* Main Push-To-Talk Button (Hold Space) */}
         <button
           onMouseDown={startVoiceInput}
           onMouseUp={stopVoiceInput}
           onTouchStart={startVoiceInput}
           onTouchEnd={stopVoiceInput}
-          className={`relative group flex items-center gap-3 px-10 py-4 rounded-2xl font-bold text-sm tracking-wide transition-all shadow-md active:scale-95 border ${
+          className={`relative group flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active:scale-95 border ${
             isHolding
               ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-lg'
               : 'bg-gradient-to-b from-white to-slate-100 hover:to-slate-200 text-slate-800 border-slate-300 hover:shadow-lg'
@@ -507,13 +515,13 @@ export const HoldSpaceToTalk: React.FC = () => {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
               </span>
-              <Mic className="w-5 h-5 animate-pulse" />
-              <span>Release to Send</span>
+              <Mic className="w-4 h-4 animate-pulse" />
+              <span>Thả để gửi</span>
             </>
           ) : (
             <>
-              <Mic className="w-5 h-5 text-teal-600 group-hover:scale-110 transition-transform" />
-              <span>Hold [Space] to Talk</span>
+              <Mic className="w-4 h-4 text-teal-600 group-hover:scale-110 transition-transform" />
+              <span>Giữ [Space] để nói</span>
             </>
           )}
         </button>

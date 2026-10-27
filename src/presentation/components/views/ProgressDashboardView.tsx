@@ -83,9 +83,9 @@ export const ProgressDashboardView: React.FC = () => {
   }));
 
   const totalMinutes =
-    stats?.totalDurationMinutes ??
     user?.totalPracticeMinutes ??
-    sessions.reduce((acc, s) => acc + Math.round(s.durationSeconds / 60), 0);
+    stats?.totalDurationMinutes ??
+    sessions.reduce((acc, s) => acc + Math.max(1, Math.round(s.durationSeconds / 60)), 0);
 
   const averageBandDisplay = stats?.averageOverallBand
     ? stats.averageOverallBand.getValue().toFixed(1)

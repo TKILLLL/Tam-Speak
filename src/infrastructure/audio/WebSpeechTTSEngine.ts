@@ -32,7 +32,28 @@ export class WebSpeechTTSEngine {
   private keepAliveTimer: any = null;
 
   constructor() {
+    this.loadSavedVoiceOverrides();
     this.loadVoices();
+  }
+
+  public getManualVoiceOverrides(): Record<string, string> {
+    return { ...this.manualPersonaVoiceOverrides };
+  }
+
+  public loadSavedVoiceOverrides(): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = window.localStorage.getItem('tamspeak_voice_overrides');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object') {
+            this.manualPersonaVoiceOverrides = { ...parsed };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private startKeepAlive(): void {
@@ -202,6 +223,13 @@ export class WebSpeechTTSEngine {
 
   public setManualVoiceOverride(persona: string, voiceName: string): void {
     this.manualPersonaVoiceOverrides[persona] = voiceName;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('tamspeak_voice_overrides', JSON.stringify(this.manualPersonaVoiceOverrides));
+      } catch {
+        // ignore
+      }
+    }
     if (this.activePersona === persona) {
       this.setActivePersona(persona);
     }

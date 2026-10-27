@@ -32,7 +32,37 @@ interface PracticeSessionRow {
 export class SupabaseSessionRepository implements ISessionRepository {
   private readonly inMemorySessions = new Map<string, PracticeSession>();
 
-  constructor(private readonly client: SupabaseClient) {}
+  constructor(private readonly client: SupabaseClient) {
+    this.loadFromLocalStorage();
+  }
+
+  private loadFromLocalStorage(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const saved = window.localStorage.getItem('tamspeak_practice_sessions');
+      if (saved) {
+        const rows: PracticeSessionRow[] = JSON.parse(saved);
+        if (Array.isArray(rows)) {
+          for (const row of rows) {
+            const domainSession = this.mapToDomain(row);
+            this.inMemorySessions.set(domainSession.id, domainSession);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load local sessions:', err);
+    }
+  }
+
+  private persistToLocalStorage(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const rows = Array.from(this.inMemorySessions.values()).map((s) => this.mapToRow(s));
+      window.localStorage.setItem('tamspeak_practice_sessions', JSON.stringify(rows));
+    } catch (err) {
+      console.warn('Failed to persist local sessions:', err);
+    }
+  }
 
   private isValidUUID(str: string): boolean {
     if (!str || typeof str !== 'string') return false;
@@ -66,9 +96,9 @@ export class SupabaseSessionRepository implements ISessionRepository {
   }
 
   public async findRecentByUserId(userId: string, limit = 20): Promise<PracticeSession[]> {
-    const memoryMatches = Array.from(this.inMemorySessions.values()).filter(
-      (s) => s.userId === userId
-    );
+    const memoryMatches = Array.from(this.inMemorySessions.values())
+      .filter((s) => s.userId === userId || userId === 'guest-user' || !s.userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     if (!this.isValidUUID(userId)) {
       return memoryMatches.slice(0, limit);
@@ -83,7 +113,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
         .limit(limit)
         .returns<PracticeSessionRow[]>();
 
-      if (error || !data) return memoryMatches.slice(0, limit);
+      if (error || !data || data.length === 0) return memoryMatches.slice(0, limit);
       const dbSessions = data.map((row) => this.mapToDomain(row));
       return dbSessions;
     } catch {
@@ -92,8 +122,9 @@ export class SupabaseSessionRepository implements ISessionRepository {
   }
 
   public async save(session: PracticeSession): Promise<void> {
-    // 1. Always cache in-memory for zero-latency local operation
+    // 1. Always cache in-memory and persist locally for zero-latency local operation
     this.inMemorySessions.set(session.id, session);
+    this.persistToLocalStorage();
 
     // 2. Sync to Supabase if valid UUID
     if (this.isValidUUID(session.id) && this.isValidUUID(session.userId)) {
@@ -107,8 +138,9 @@ export class SupabaseSessionRepository implements ISessionRepository {
   }
 
   public async update(session: PracticeSession): Promise<void> {
-    // 1. Always update in-memory
+    // 1. Always update in-memory and persist locally
     this.inMemorySessions.set(session.id, session);
+    this.persistToLocalStorage();
 
     // 2. Sync to Supabase if valid UUID
     if (this.isValidUUID(session.id) && this.isValidUUID(session.userId)) {
@@ -126,6 +158,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
 
   public async delete(id: string, userId: string): Promise<void> {
     this.inMemorySessions.delete(id);
+    this.persistToLocalStorage();
 
     if (this.isValidUUID(id) && this.isValidUUID(userId)) {
       try {
@@ -141,21 +174,64 @@ export class SupabaseSessionRepository implements ISessionRepository {
   }
 
   public async getAggregatedStats(userId: string): Promise<AggregatedUserStats> {
-    const { data, error } = await this.client
-      .from('practice_sessions')
-      .select('overall_score, pronunciation_score, fluency_score, lexical_score, grammar_score, duration_seconds')
-      .eq('user_id', userId)
-      .not('overall_score', 'is', null)
-      .returns<Array<{
-        overall_score: number;
-        pronunciation_score: number;
-        fluency_score: number;
-        lexical_score: number;
-        grammar_score: number;
-        duration_seconds: number;
-      }>>();
+    // 1. If valid UUID, attempt to read from Supabase
+    if (this.isValidUUID(userId)) {
+      try {
+        const { data, error } = await this.client
+          .from('practice_sessions')
+          .select('overall_score, pronunciation_score, fluency_score, lexical_score, grammar_score, duration_seconds')
+          .eq('user_id', userId)
+          .not('overall_score', 'is', null)
+          .returns<Array<{
+            overall_score: number;
+            pronunciation_score: number;
+            fluency_score: number;
+            lexical_score: number;
+            grammar_score: number;
+            duration_seconds: number;
+          }>>();
 
-    if (error || !data || data.length === 0) {
+        if (!error && data && data.length > 0) {
+          const totalSessions = data.length;
+          let sumOverall = 0;
+          let sumP = 0;
+          let sumF = 0;
+          let sumL = 0;
+          let sumG = 0;
+          let totalSeconds = 0;
+
+          for (const s of data) {
+            sumOverall += s.overall_score;
+            sumP += s.pronunciation_score;
+            sumF += s.fluency_score;
+            sumL += s.lexical_score;
+            sumG += s.grammar_score;
+            totalSeconds += s.duration_seconds;
+          }
+
+          return {
+            totalSessions,
+            totalDurationMinutes: Math.round(totalSeconds / 60),
+            averageOverallBand: BandScore.fromRawAverage(sumOverall / totalSessions),
+            averagePronunciation: BandScore.fromRawAverage(sumP / totalSessions),
+            averageFluency: BandScore.fromRawAverage(sumF / totalSessions),
+            averageLexical: BandScore.fromRawAverage(sumL / totalSessions),
+            averageGrammar: BandScore.fromRawAverage(sumG / totalSessions),
+          };
+        }
+      } catch {
+        // Fall back to local calculation
+      }
+    }
+
+    // 2. Reliable Local Calculation from in-memory / local storage
+    const localMatches = Array.from(this.inMemorySessions.values()).filter(
+      (s) =>
+        (s.userId === userId || userId === 'guest-user' || !s.userId) &&
+        s.overallScore !== null
+    );
+
+    if (localMatches.length === 0) {
       return {
         totalSessions: 0,
         totalDurationMinutes: 0,
@@ -167,7 +243,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
       };
     }
 
-    const totalSessions = data.length;
+    const totalSessions = localMatches.length;
     let sumOverall = 0;
     let sumP = 0;
     let sumF = 0;
@@ -175,13 +251,13 @@ export class SupabaseSessionRepository implements ISessionRepository {
     let sumG = 0;
     let totalSeconds = 0;
 
-    for (const s of data) {
-      sumOverall += s.overall_score;
-      sumP += s.pronunciation_score;
-      sumF += s.fluency_score;
-      sumL += s.lexical_score;
-      sumG += s.grammar_score;
-      totalSeconds += s.duration_seconds;
+    for (const s of localMatches) {
+      sumOverall += s.overallScore ? s.overallScore.getValue() : 6.0;
+      sumP += s.pronunciationScore ? s.pronunciationScore.getValue() : 6.0;
+      sumF += s.fluencyScore ? s.fluencyScore.getValue() : 6.0;
+      sumL += s.lexicalScore ? s.lexicalScore.getValue() : 6.0;
+      sumG += s.grammarScore ? s.grammarScore.getValue() : 6.0;
+      totalSeconds += s.durationSeconds || 60;
     }
 
     return {

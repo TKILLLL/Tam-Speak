@@ -48,6 +48,18 @@ export interface EphemeralTurn {
   mispronouncedWords?: EphemeralMistake[];
 }
 
+export interface CustomRoleplayTopic {
+  id: string;
+  title: string;
+  description: string;
+  aiRole: string;
+  userRole: string;
+  duration?: string;
+  tags?: string[];
+  targetKeywords?: string[];
+  createdAt: string;
+}
+
 export interface PendingTargetConfig {
   part: ActivePartType;
   topicTitle: string;
@@ -211,6 +223,11 @@ export interface TamSpeakState {
   setTargetLevel: (level: 'a2' | 'b1' | 'b2' | 'c1' | 'c2') => void;
   feedbackLanguage: 'en_vn' | 'en_en';
   setFeedbackLanguage: (lang: 'en_vn' | 'en_en') => void;
+
+  // Custom Roleplay Topics
+  customRoleplayTopics: CustomRoleplayTopic[];
+  addCustomRoleplayTopic: (topic: CustomRoleplayTopic) => void;
+  removeCustomRoleplayTopic: (id: string) => void;
 
   // Onboarding
   hasCompletedOnboarding: boolean;
@@ -510,6 +527,43 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setTargetLevel: (targetLevel) => set({ targetLevel }),
   feedbackLanguage: 'en_vn',
   setFeedbackLanguage: (feedbackLanguage) => set({ feedbackLanguage }),
+
+  // Custom Roleplay Topics
+  customRoleplayTopics: (() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = window.localStorage.getItem('tamspeak_custom_topics');
+        if (saved) return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  })(),
+  addCustomRoleplayTopic: (topic) =>
+    set((state) => {
+      const updated = [topic, ...state.customRoleplayTopics.filter((t) => t.id !== topic.id)];
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          window.localStorage.setItem('tamspeak_custom_topics', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+      }
+      return { customRoleplayTopics: updated };
+    }),
+  removeCustomRoleplayTopic: (id) =>
+    set((state) => {
+      const updated = state.customRoleplayTopics.filter((t) => t.id !== id);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          window.localStorage.setItem('tamspeak_custom_topics', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+      }
+      return { customRoleplayTopics: updated };
+    }),
 
   // Onboarding
   hasCompletedOnboarding:

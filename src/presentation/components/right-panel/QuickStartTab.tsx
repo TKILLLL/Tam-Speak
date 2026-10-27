@@ -6,17 +6,13 @@ import {
   ChevronRight,
   ArrowLeft,
   PlusCircle,
+  Trash2,
 } from 'lucide-react';
 import { useTamSpeakStore, ActivePartType } from '../../store';
 import { CustomTopicBuilder } from './CustomTopicBuilder';
 import { container } from '../../../di/DIContainer';
 import { PracticeMode, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { SkillLevel } from '../../../domain/entities/User';
-import {
-  getRandomIELTSQuestion,
-  generateFullMockTestPackage,
-  IELTS_QUESTION_BANK,
-} from '../../../infrastructure/data/ieltsQuestionBank';
 import { aiService } from '../../../infrastructure/ai/AIService';
 
 const mapPresetToActivePart = (presetId: string, mode: string): ActivePartType => {
@@ -35,6 +31,9 @@ interface PresetCard {
   duration: string;
   description: string;
   tags: string[];
+  isCustom?: boolean;
+  aiRole?: string;
+  userRole?: string;
 }
 
 const IELTS_PRESETS: PresetCard[] = [
@@ -72,7 +71,7 @@ const IELTS_PRESETS: PresetCard[] = [
   },
 ];
 
-const CONVERSATION_PRESETS: PresetCard[] = [
+const DEFAULT_CONVERSATION_PRESETS: PresetCard[] = [
   {
     id: 'c1',
     mode: 'daily_conversation',
@@ -107,18 +106,30 @@ const CONVERSATION_PRESETS: PresetCard[] = [
   },
 ];
 
-const CURATED_IELTS_TOPICS = IELTS_QUESTION_BANK.map((t) => t.topicTitle);
+const CURATED_IELTS_TOPICS: string[] = [
+  'Hometown & Living Environment',
+  'Studies, Work & Career Aspirations',
+  'Technology, Smartphones & AI',
+  'Environment & Climate Change',
+  'Travel, Culture & Tourism',
+  'Art, Music & Creative Expression',
+  'Health, Fitness & Balanced Lifestyle',
+  'Media, Social Networks & News',
+  'Education & Lifelong Learning',
+  'Family, Friends & Social Bonds',
+  'Consumer Habits & Online Shopping',
+  'Transportation & Urban Planning',
+  'Books, Literature & Reading',
+  'Sports, Competition & Leisure',
+  'Traditions, Holidays & Celebrations',
+];
 
 export const QuickStartTab: React.FC = () => {
   const {
-    practiceMode,
-    setPracticeMode,
     targetLevel,
     setTargetLevel,
     feedbackLanguage,
     setFeedbackLanguage,
-    activeAIVoice,
-    setActiveAIVoice,
     setActiveTopic,
     setActiveSession,
     setLastAIMessage,
@@ -138,6 +149,8 @@ export const QuickStartTab: React.FC = () => {
     setMockTestProgress,
     setAiVocabHints,
     setIsLoadingVocabHints,
+    customRoleplayTopics,
+    removeCustomRoleplayTopic,
   } = useTamSpeakStore();
 
   const [activeCategory, setActiveCategory] = useState<'ielts' | 'conversation'>('ielts');
@@ -155,7 +168,24 @@ export const QuickStartTab: React.FC = () => {
     );
   }
 
-  const presets = activeCategory === 'ielts' ? IELTS_PRESETS : CONVERSATION_PRESETS;
+  // Dynamic custom roleplay cards
+  const customPresets: PresetCard[] = customRoleplayTopics.map((ct) => ({
+    id: ct.id,
+    mode: 'custom_roleplay' as PracticeMode,
+    title: ct.title,
+    duration: ct.duration || 'Custom',
+    description: ct.description,
+    tags: ct.tags && ct.tags.length > 0 ? ct.tags : ['Custom Roleplay', ct.aiRole],
+    isCustom: true,
+    aiRole: ct.aiRole,
+    userRole: ct.userRole,
+  }));
+
+  const presets =
+    activeCategory === 'ielts'
+      ? IELTS_PRESETS
+      : [...customPresets, ...DEFAULT_CONVERSATION_PRESETS];
+
   const currentPreset = presets.find((p) => p.id === selectedPresetId) || presets[0]!;
 
   const executeStartPractice = async (preset: PresetCard, topicTitle?: string) => {
@@ -185,14 +215,17 @@ export const QuickStartTab: React.FC = () => {
     setHasShownRevealWarningInSession(false);
 
     // 3. Set active topic in store
+    const aiRole = preset.aiRole || (activeCategory === 'ielts' ? 'IELTS Speaking Examiner' : 'Conversational Partner');
+    const userRole = preset.userRole || 'Speaking Candidate';
+
     setActiveTopic({
       id: topicId,
       userId,
       title,
       description: preset.description,
       contextPrompt: preset.description,
-      aiRole: activeCategory === 'ielts' ? 'IELTS Speaking Examiner' : 'Conversational Partner',
-      userRole: 'Speaking Candidate',
+      aiRole,
+      userRole,
       targetKeywords: ['perspective', 'notably', 'consequently'],
       targetLevel,
       isPublic: false,
@@ -235,37 +268,31 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 6. Generate tailored initial greeting question from Question Bank
+    // 6. 100% Dynamic AI Examiner initial prompts (Zero raw question bank data)
     let greeting = '';
     if (mode === 'ielts_part1') {
-      const picked = getRandomIELTSQuestion({ part: 'part1', topicIdOrTitle: title });
-      greeting = `Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today's topic is: "${title}". ${picked.question}`;
+      greeting = `Welcome to Part 1 of your IELTS Speaking test. My name is your AI examiner. Today we will discuss "${title}". Could you tell me a little bit about yourself and your personal experience with this topic?`;
       setMockTestProgress(null);
     } else if (mode === 'ielts_part2') {
-      const picked = getRandomIELTSQuestion({ part: 'part2', topicIdOrTitle: title });
-      greeting = `Welcome to Part 2 of the IELTS Speaking test. Your cue card topic is: "${picked.cueCard?.cueCardTitle || title}".\n\n${picked.question}\n\nYou have 1 minute to prepare your notes, then speak for up to 2 minutes. When ready, press and hold Space to begin speaking!`;
+      greeting = `Welcome to Part 2: Individual Long Turn. Your topic is: "${title}".\n\nYou should say:\n• What it is and when you first encountered it\n• How it has influenced your life or perspective\n• Who you share this interest or experience with\n• And explain why this aspect of "${title}" is particularly meaningful to you.\n\nYou have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press the microphone button to begin!`;
       setMockTestProgress(null);
     } else if (mode === 'ielts_part3') {
-      const picked = getRandomIELTSQuestion({ part: 'part3', topicIdOrTitle: title });
-      greeting = `Welcome to Part 3 of the IELTS Speaking test: Two-Way Discussion on "${title}". ${picked.question}`;
+      greeting = `Welcome to Part 3 of the IELTS Speaking test: Two-Way Analytical Discussion on "${title}". From a broader societal perspective, what do you consider to be the most significant impact of this issue on modern communities?`;
       setMockTestProgress(null);
     } else if (mode === 'ielts_full_mock') {
-      const pkg = generateFullMockTestPackage(title);
       setMockTestProgress({
         topicTitle: title,
         currentPart: 1,
         questionIndex: 0,
-        part1Questions: pkg.part1Questions.map((q) => q.question),
-        part2CueCard: {
-          title: pkg.part2CueCard.cueCardTitle,
-          cueBulletPoints: pkg.part2CueCard.youShouldSay,
-        },
-        part3Questions: pkg.part3Questions.map((q) => q.question),
+        part1Questions: [],
+        part2CueCard: null,
+        part3Questions: [],
       });
-      const firstQ = pkg.part1Questions[0]?.question || 'Could you please introduce yourself and your daily routine?';
-      greeting = `Welcome to your Full IELTS Speaking Mock Test. We will progress through Parts 1, 2, and 3. Let us begin with Part 1: "${title}". ${firstQ}`;
+      greeting = `Welcome to your Full IELTS Speaking Mock Test. I will be your official AI examiner guiding you through Parts 1, 2, and 3. Let us begin with Part 1: "${title}". Could you introduce your perspective on this topic?`;
     } else {
-      greeting = `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, hold [Space] and share your thoughts!`;
+      greeting = preset.isCustom
+        ? `Hello! I will be acting as your ${aiRole}. In this scenario, you are the ${userRole} discussing "${title}". Whenever you are ready, press the microphone button and begin!`
+        : `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, press the microphone button and share your thoughts!`;
       setMockTestProgress(null);
     }
 
@@ -332,7 +359,7 @@ export const QuickStartTab: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto pr-1 select-none">
       {/* Category Toggle: IELTS vs Conversation Practice */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl mb-4">
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl mb-3">
         <button
           onClick={() => {
             setActiveCategory('ielts');
@@ -352,7 +379,7 @@ export const QuickStartTab: React.FC = () => {
         <button
           onClick={() => {
             setActiveCategory('conversation');
-            setSelectedPresetId('c1');
+            setSelectedPresetId(customPresets[0]?.id || 'c1');
             setShowTopicPicker(false);
           }}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
@@ -364,6 +391,50 @@ export const QuickStartTab: React.FC = () => {
           <MessageSquare className={`w-3.5 h-3.5 ${activeCategory === 'conversation' ? 'text-teal-600' : 'text-slate-400'}`} />
           <span>Roleplay & Chat</span>
         </button>
+      </div>
+
+      {/* Sleek Practice Controls Bar (Feedback Language & Target Level) */}
+      <div className="flex items-center justify-between gap-2 px-1 mb-3.5 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-bold text-slate-500">Feedback:</span>
+          <div className="flex p-0.5 bg-slate-100 rounded-lg">
+            <button
+              onClick={() => setFeedbackLanguage('en_vn')}
+              className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-all ${
+                feedbackLanguage === 'en_vn'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              EN-VN
+            </button>
+            <button
+              onClick={() => setFeedbackLanguage('en_en')}
+              className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-all ${
+                feedbackLanguage === 'en_en'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              EN-EN
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-bold text-slate-500">Target:</span>
+          <select
+            value={targetLevel}
+            onChange={(e) => setTargetLevel(e.target.value as SkillLevel)}
+            className="bg-slate-100 border-0 rounded-lg px-2 py-0.5 text-[11px] font-bold text-slate-800 uppercase cursor-pointer hover:bg-slate-200/70"
+          >
+            <option value="a2">A2 (4.0-5.0)</option>
+            <option value="b1">B1 (5.0-6.0)</option>
+            <option value="b2">B2 (6.5-7.5)</option>
+            <option value="c1">C1 (8.0-8.5)</option>
+            <option value="c2">C2 (9.0)</option>
+          </select>
+        </div>
       </div>
 
       {/* TOPIC PICKER VIEW IF ACTIVE */}
@@ -414,33 +485,56 @@ export const QuickStartTab: React.FC = () => {
           )}
 
           {/* Preset Cards List */}
-          <div className="space-y-2.5 mb-4">
+          <div className="space-y-2.5 mb-4 flex-1 overflow-y-auto">
             {presets.map((preset) => {
               const isSelected = selectedPresetId === preset.id;
               return (
                 <div
                   key={preset.id}
                   onClick={() => handleSelectPreset(preset)}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative group ${
                     isSelected
                       ? 'bg-gradient-to-r from-teal-100/90 via-cyan-50/80 to-teal-50/90 border-teal-500 shadow-xs ring-1 ring-teal-500/30'
                       : 'bg-slate-200/70 hover:bg-slate-200 text-slate-800 border-slate-300'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-1.5">
-                    <div>
-                      <h4 className="font-bold text-xs text-slate-900">{preset.title}</h4>
+                    <div className="pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="font-bold text-xs text-slate-900">{preset.title}</h4>
+                        {preset.isCustom && (
+                          <span className="text-[9px] bg-teal-600 text-white px-1.5 py-0.2 rounded-full font-bold">
+                            User Created
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-1">
                         {preset.description}
                       </p>
                     </div>
-                    <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-white/70 px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
-                      <Clock className="w-3.5 h-3.5 text-teal-600" />
-                      {preset.duration}
-                    </span>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-white/70 px-2 py-0.5 rounded-full border border-slate-200">
+                        <Clock className="w-3.5 h-3.5 text-teal-600" />
+                        {preset.duration}
+                      </span>
+                      {preset.isCustom && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeCustomRoleplayTopic(preset.id);
+                          }}
+                          title="Delete custom topic"
+                          className="p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 mt-2">
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                     {preset.tags.map((tag) => (
                       <span
                         key={tag}
@@ -456,7 +550,7 @@ export const QuickStartTab: React.FC = () => {
           </div>
 
           {/* Action Row: Choose Topic & Start */}
-          <div className="flex items-center gap-2 mb-5">
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
             {activeCategory === 'ielts' && (
               <button
                 onClick={() => setShowTopicPicker(true)}
@@ -471,93 +565,6 @@ export const QuickStartTab: React.FC = () => {
             >
               Start Practice
             </button>
-          </div>
-
-          {/* Essential Settings (2x2 Grid) */}
-          <div className="border-t border-slate-100 pt-4 mt-auto">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
-              Essential Practice Settings
-            </span>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {/* 1. Target Level */}
-              <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/50">
-                <span className="block text-[10px] font-semibold text-slate-500 mb-1">
-                  Target CEFR Level
-                </span>
-                <select
-                  value={targetLevel}
-                  onChange={(e) => setTargetLevel(e.target.value as SkillLevel)}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 uppercase focus:ring-1 focus:ring-teal-500"
-                >
-                  <option value="a2">A2 (Band 4.0 - 5.0)</option>
-                  <option value="b1">B1 (Band 5.0 - 6.0)</option>
-                  <option value="b2">B2 (Band 6.5 - 7.5)</option>
-                  <option value="c1">C1 (Band 8.0 - 8.5)</option>
-                  <option value="c2">C2 (Band 9.0)</option>
-                </select>
-              </div>
-
-              {/* 2. Practice Mode */}
-              <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/50">
-                <span className="block text-[10px] font-semibold text-slate-500 mb-1">
-                  Practice Mode
-                </span>
-                <select
-                  value={practiceMode}
-                  onChange={(e) => setPracticeMode(e.target.value as 'mock_test' | 'coaching' | 'free_roleplay')}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-teal-500"
-                >
-                  <option value="mock_test">Official Mock Test</option>
-                  <option value="coaching">Coaching & Live Tips</option>
-                  <option value="free_roleplay">Free Roleplay</option>
-                </select>
-              </div>
-
-              {/* 3. Feedback Language */}
-              <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/50">
-                <span className="block text-[10px] font-semibold text-slate-500 mb-1">
-                  Feedback Language
-                </span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setFeedbackLanguage('en_vn')}
-                    className={`flex-1 py-1 rounded text-[11px] font-bold ${
-                      feedbackLanguage === 'en_vn' ? 'bg-teal-600 text-white' : 'bg-white border text-slate-600'
-                    }`}
-                  >
-                    EN - VN
-                  </button>
-                  <button
-                    onClick={() => setFeedbackLanguage('en_en')}
-                    className={`flex-1 py-1 rounded text-[11px] font-bold ${
-                      feedbackLanguage === 'en_en' ? 'bg-teal-600 text-white' : 'bg-white border text-slate-600'
-                    }`}
-                  >
-                    EN - EN
-                  </button>
-                </div>
-              </div>
-
-              {/* 4. AI Voice & Accent */}
-              <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/50">
-                <span className="block text-[10px] font-semibold text-slate-500 mb-1">
-                  AI Voice & Accent
-                </span>
-                <select
-                  value={activeAIVoice}
-                  onChange={(e) => {
-                    setActiveAIVoice(e.target.value);
-                    container.speechTTSEngine.setActivePersona(e.target.value);
-                  }}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-teal-500"
-                >
-                  <option value="Aoede (US)">Aoede (US English)</option>
-                  <option value="Charon (UK)">Charon (UK English)</option>
-                  <option value="Kore (AU)">Kore (AU English)</option>
-                </select>
-              </div>
-            </div>
           </div>
         </>
       )}
