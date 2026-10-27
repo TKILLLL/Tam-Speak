@@ -9,13 +9,56 @@ import {
   CheckCircle,
   Lightbulb,
 } from 'lucide-react';
-import { useTamSpeakStore, EphemeralTurn } from '../../store';
+import { motion } from 'framer-motion';
+import { useTamSpeakStore, EphemeralTurn, OrbState } from '../../store';
 import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer';
-import { GlowingOrbVisualizer } from '../voice-stage/GlowingOrbVisualizer';
 import { container } from '../../../di/DIContainer';
 
 const INITIAL_FRIEND_GREETING =
   "Hey! What's up? How is your day going so far?";
+
+const MiniGlowingOrb: React.FC<{ orbState: OrbState; audioLevel: number }> = ({
+  orbState,
+  audioLevel,
+}) => {
+  const dynamicScale = orbState === 'listening' ? 1 + audioLevel * 0.35 : 1;
+
+  return (
+    <div className="relative flex items-center justify-center w-10 h-10 shrink-0">
+      <motion.div
+        animate={
+          orbState === 'idle'
+            ? { scale: [1, 1.1, 1], opacity: [0.35, 0.55, 0.35] }
+            : orbState === 'listening'
+            ? { scale: dynamicScale * 1.25, opacity: 0.8 }
+            : orbState === 'thinking'
+            ? { rotate: 360, opacity: [0.5, 0.8, 0.5] }
+            : { scale: [1, 1.18, 1], opacity: [0.65, 0.95, 0.65] }
+        }
+        transition={
+          orbState === 'thinking'
+            ? { repeat: Infinity, duration: 2.2, ease: 'linear' }
+            : { repeat: Infinity, duration: 3, ease: 'easeInOut' }
+        }
+        className="absolute w-8 h-8 rounded-full bg-gradient-to-tr from-teal-500 via-cyan-400 to-sky-300 blur-xs pointer-events-none"
+      />
+      <motion.div
+        animate={
+          orbState === 'idle'
+            ? { scale: [1, 1.05, 1] }
+            : orbState === 'listening'
+            ? { scale: dynamicScale }
+            : orbState === 'thinking'
+            ? { scale: [0.95, 1.05, 0.95] }
+            : { scale: [1, 1.08, 1] }
+        }
+        className="relative w-8 h-8 rounded-full bg-gradient-to-br from-teal-500 via-cyan-500 to-teal-700 shadow-xs border border-white/70 flex items-center justify-center"
+      >
+        <Sparkles className="w-3.5 h-3.5 text-white" />
+      </motion.div>
+    </div>
+  );
+};
 
 export const SpeakingAIView: React.FC = () => {
   const {
@@ -38,27 +81,22 @@ export const SpeakingAIView: React.FC = () => {
   const audioAnalyzer = useAudioAnalyzer();
   const transcriptBufferRef = useRef('');
   const isHoldingRef = useRef(false);
-  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
   const isMountedRef = useRef(false);
 
-  // Sync real-time audio amplitude to store for Glowing Orb
+  // Sync real-time audio amplitude to store for Mini Glowing Orb
   useEffect(() => {
     if (audioAnalyzer.isListening) {
       setAudioLevel(audioAnalyzer.audioLevel);
     }
   }, [audioAnalyzer.audioLevel, audioAnalyzer.isListening, setAudioLevel]);
 
-  // Auto-scroll chat stream to bottom when new messages arrive
+  // Auto-scroll chat stream to the latest message
   useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTo({
-        top: chatScrollRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
-    }
-  }, [ephemeralMessages, orbState]);
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [ephemeralMessages, liveSpeechTranscript, orbState]);
 
-  // Initial Greeting & Lifecycle Ephemeral Memory Cleanup (Requirement 2 & 3)
+  // Initial Greeting & Lifecycle Ephemeral Memory Cleanup (Requirement 2 & 3 & 4)
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -105,7 +143,7 @@ export const SpeakingAIView: React.FC = () => {
             ipa: m.ipa,
             contextSentence: turn.inferredIntendedMeaning || turn.text,
             errorReason: m.reason,
-            suggestedAlternative: 'Practiced with Alex (Native Best Friend)',
+            suggestedAlternative: 'Practiced with Alex (Native Companion)',
             topicTitle: 'Speaking AI (Casual Chat)',
           });
         });
@@ -154,7 +192,7 @@ export const SpeakingAIView: React.FC = () => {
     }
   }, [audioAnalyzer, setLiveSpeechTranscript, setOrbState]);
 
-  // Stop Voice Input & Send to AI Best Friend with Contextual Phonetic Auto-Correction
+  // Stop Voice Input & Send to AI Best Friend with Full History & Contextual Phonetic Auto-Correction
   const stopVoiceInput = useCallback(async () => {
     if (!isHoldingRef.current) return;
     isHoldingRef.current = false;
@@ -199,17 +237,18 @@ export const SpeakingAIView: React.FC = () => {
       return;
     }
 
-    // 4. Send to ChatSpeakingAIUseCase with Sliding Context Window (Last 6 turns)
-    try {
-      const history = ephemeralMessages.map((m) => ({
-        speaker: m.speaker,
-        text: m.text,
-      }));
+    // 4. Stale Closure Fix: Always read the latest full session history directly from store
+    const latestMessages = useTamSpeakStore.getState().ephemeralMessages;
+    const fullSessionHistory = latestMessages.map((m) => ({
+      speaker: m.speaker,
+      text: m.text,
+    }));
 
+    try {
       const result = await container.chatSpeakingAIUseCase.execute({
         userId,
         rawSttInput: spokenTranscript,
-        conversationHistory: history,
+        conversationHistory: fullSessionHistory,
       });
 
       // 5. Save mispronounced words immediately to Pronunciation & IPA Lab
@@ -219,7 +258,7 @@ export const SpeakingAIView: React.FC = () => {
           ipa: m.ipa,
           contextSentence: result.inferredIntendedMeaning || spokenTranscript,
           errorReason: m.reason,
-          suggestedAlternative: 'Practiced with Alex (Native Best Friend)',
+          suggestedAlternative: 'Practiced with Alex (Native Companion)',
           topicTitle: 'Speaking AI (Casual Chat)',
         });
       });
@@ -259,7 +298,7 @@ export const SpeakingAIView: React.FC = () => {
       });
     } catch (err) {
       console.warn('Speaking AI conversation error:', err);
-      const fallbackReply = "Haha totally, I feel you! What else is on your mind?";
+      const fallbackReply = "Totally, that makes sense! What else is on your mind?";
       const aiFallbackTurn: EphemeralTurn = {
         id: `ephem-ai-${Date.now()}`,
         speaker: 'ai',
@@ -282,7 +321,6 @@ export const SpeakingAIView: React.FC = () => {
     addEphemeralMessage,
     addPronunciationMistake,
     audioAnalyzer,
-    ephemeralMessages,
     setLiveSpeechTranscript,
     setOrbState,
     user?.id,
@@ -350,14 +388,15 @@ export const SpeakingAIView: React.FC = () => {
     }
 
     // Export any unmastered mistakes to Pronunciation Lab before wiping
-    ephemeralMessages.forEach((turn) => {
+    const currentMessages = useTamSpeakStore.getState().ephemeralMessages;
+    currentMessages.forEach((turn) => {
       turn.mispronouncedWords?.forEach((m) => {
         addPronunciationMistake({
           word: m.word,
           ipa: m.ipa,
           contextSentence: turn.inferredIntendedMeaning || turn.text,
           errorReason: m.reason,
-          suggestedAlternative: 'Practiced with Alex (Native Best Friend)',
+          suggestedAlternative: 'Practiced with Alex (Native Companion)',
           topicTitle: 'Speaking AI (Casual Chat)',
         });
       });
@@ -369,13 +408,13 @@ export const SpeakingAIView: React.FC = () => {
     const newGreetingTurn: EphemeralTurn = {
       id: `ephem-ai-init-${Date.now()}`,
       speaker: 'ai',
-      text: "Fresh start! What would you like to chat about?",
+      text: "Fresh start! What is on your mind today?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
     addEphemeralMessage(newGreetingTurn);
 
     setOrbState('speaking');
-    container.speechTTSEngine.speak("Fresh start! What would you like to chat about?", {
+    container.speechTTSEngine.speak("Fresh start! What is on your mind today?", {
       onEnd: () => {
         if (isMountedRef.current) setOrbState('idle');
       },
@@ -386,26 +425,26 @@ export const SpeakingAIView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gradient-to-b from-white via-slate-50/70 to-slate-100/50 select-none overflow-hidden relative">
-      {/* Top Navigation & Persona Bar */}
-      <header className="px-6 py-3 border-b border-slate-200/80 bg-white/90 backdrop-blur-xs flex items-center justify-between shrink-0 shadow-2xs z-10">
+    <div className="flex flex-col h-full overflow-hidden bg-slate-50 select-none relative">
+      {/* Top Header: Companion Status */}
+      <header className="px-6 py-3 border-b border-slate-200 bg-white/95 backdrop-blur-xs flex items-center justify-between shrink-0 shadow-2xs z-10">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-teal-600 to-cyan-500 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-              <Sparkles className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+              <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full ring-2 ring-white" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
           </div>
 
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900">Alex</h2>
               <span className="text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
-                Native Best Friend
+                Native Companion
               </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Zero topic restrictions • Contextual phonetic auto-correction • Ephemeral memory
+              Natural conversation • Real-time phonetic auto-correction • Ephemeral memory
             </p>
           </div>
         </div>
@@ -420,85 +459,9 @@ export const SpeakingAIView: React.FC = () => {
         </button>
       </header>
 
-      {/* Main Split Layout: Voice Stage Visualizer (Top/Center) + Ephemeral Stream (Bottom/Scroll) */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Upper Zone: Glowing Orb Visualizer & Voice Controller */}
-        <section className="shrink-0 flex flex-col items-center justify-center py-4 px-6 border-b border-slate-100 bg-white/50 backdrop-blur-2xs">
-          <div className="scale-85 origin-center">
-            <GlowingOrbVisualizer orbState={orbState} audioLevel={audioLevel} />
-          </div>
-
-          {/* Live Speech Detection Bar */}
-          <div className="w-full max-w-xl min-h-[2.25rem] flex items-center justify-center my-1">
-            {orbState === 'listening' ? (
-              <div className="w-full p-2 px-4 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs shadow-2xs flex items-center gap-2 animate-in fade-in">
-                <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping shrink-0" />
-                <span className="text-slate-500 font-semibold shrink-0">Live Detection:</span>
-                <span className="font-medium text-slate-900 truncate">
-                  {liveSpeechTranscript ? `"${liveSpeechTranscript}"` : 'Listening... speak to Alex'}
-                </span>
-                <span className="inline-block w-1.5 h-3.5 bg-teal-600 animate-pulse shrink-0" />
-              </div>
-            ) : orbState === 'thinking' ? (
-              <div className="p-1.5 px-4 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-xs flex items-center gap-2 animate-in fade-in">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                <span>Alex is listening and thinking...</span>
-              </div>
-            ) : null}
-          </div>
-
-          {/* Push-to-Talk Controls */}
-          <div className="flex items-center gap-3 pt-2">
-            <button
-              onMouseDown={startVoiceInput}
-              onMouseUp={stopVoiceInput}
-              onTouchStart={startVoiceInput}
-              onTouchEnd={stopVoiceInput}
-              className={`flex items-center gap-2.5 px-8 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-sm active:scale-95 border ${
-                isHolding
-                  ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-md'
-                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300 hover:shadow-md'
-              }`}
-            >
-              {isHolding ? (
-                <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
-                  </span>
-                  <Mic className="w-4 h-4 animate-pulse" />
-                  <span>Release to Send</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4 text-teal-600" />
-                  <span>Hold [Space] to Talk</span>
-                </>
-              )}
-            </button>
-
-            {/* Auto VAD Toggle Button */}
-            <button
-              onClick={toggleAutoVad}
-              title="Toggle Hands-Free Voice Detection"
-              className={`flex items-center gap-1.5 px-3 py-3 rounded-2xl border text-xs font-semibold transition-all ${
-                isAutoVadEnabled
-                  ? 'bg-teal-50 border-teal-400 text-teal-800 ring-2 ring-teal-400/20'
-                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Radio className={`w-3.5 h-3.5 ${isAutoVadEnabled ? 'text-teal-600 animate-pulse' : 'text-slate-400'}`} />
-              <span className="hidden sm:inline">Auto VAD:</span>
-              <span>{isAutoVadEnabled ? 'ON' : 'OFF'}</span>
-            </button>
-          </div>
-        </section>
-
-        {/* Lower Zone: Compact Ephemeral Chat Stream */}
-        <section
-          ref={chatScrollRef}
-          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-3xl w-full mx-auto"
-        >
+      {/* Part 1: Upper Chat Area (Scrollable Message Thread) */}
+      <section className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="max-w-3xl w-full mx-auto space-y-4">
           {ephemeralMessages.map((msg) => (
             <div
               key={msg.id}
@@ -554,7 +517,7 @@ export const SpeakingAIView: React.FC = () => {
                       <Volume2 className="w-3.5 h-3.5" />
                       <span>Listen</span>
                     </button>
-                    <span className="text-[10px] text-slate-400">Casual Voice</span>
+                    <span className="text-[10px] text-slate-400">Spoken Reply</span>
                   </div>
                 )}
               </div>
@@ -597,8 +560,110 @@ export const SpeakingAIView: React.FC = () => {
               )}
             </div>
           ))}
-        </section>
-      </div>
+
+          {/* Thinking indicator bubble */}
+          {orbState === 'thinking' && (
+            <div className="flex items-center gap-2 p-3 rounded-2xl bg-white border border-slate-200 text-slate-500 text-xs w-fit animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping" />
+              <span>Alex is formulating a response...</span>
+            </div>
+          )}
+
+          <div ref={chatBottomRef} />
+        </div>
+      </section>
+
+      {/* Part 2: Fixed Audio Station (Pinned permanently at bottom) */}
+      <footer className="shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md px-6 py-3.5 z-10 shadow-lg">
+        <div className="max-w-3xl w-full mx-auto space-y-2.5">
+          {/* Live Speech Detection Text (real-time stream) */}
+          {(orbState === 'listening' || liveSpeechTranscript) && (
+            <div className="w-full p-2 px-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs shadow-2xs flex items-center gap-2 animate-in fade-in">
+              <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping shrink-0" />
+              <span className="text-slate-500 font-semibold shrink-0">Live Detection:</span>
+              <span className="font-medium text-slate-900 truncate">
+                {liveSpeechTranscript || 'Listening... speak into your microphone'}
+              </span>
+              <span className="inline-block w-1.5 h-3.5 bg-teal-600 animate-pulse shrink-0" />
+            </div>
+          )}
+
+          {/* Control Bar: Mini Glowing Orb + Hold [Space] Button + Auto VAD & Clear */}
+          <div className="flex items-center justify-between gap-3">
+            {/* Left: Mini Glowing AI Orb & State */}
+            <div className="flex items-center gap-2.5 min-w-[120px]">
+              <MiniGlowingOrb orbState={orbState} audioLevel={audioLevel} />
+              <div className="hidden sm:flex flex-col">
+                <span className="text-xs font-bold text-slate-800">Alex</span>
+                <span className="text-[10px] text-slate-500">
+                  {orbState === 'listening'
+                    ? 'Listening...'
+                    : orbState === 'thinking'
+                    ? 'Thinking...'
+                    : orbState === 'speaking'
+                    ? 'Speaking...'
+                    : 'Ready to talk'}
+                </span>
+              </div>
+            </div>
+
+            {/* Center: Prominent Push-to-Talk Button */}
+            <button
+              onMouseDown={startVoiceInput}
+              onMouseUp={stopVoiceInput}
+              onTouchStart={startVoiceInput}
+              onTouchEnd={stopVoiceInput}
+              className={`flex-1 max-w-sm flex items-center justify-center gap-2.5 px-6 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-sm active:scale-95 border cursor-pointer ${
+                isHolding
+                  ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-md'
+                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300 hover:shadow-md'
+              }`}
+            >
+              {isHolding ? (
+                <>
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+                  </span>
+                  <Mic className="w-4 h-4 animate-pulse" />
+                  <span>Release to Send</span>
+                </>
+              ) : (
+                <>
+                  <Mic className="w-4 h-4 text-teal-600" />
+                  <span>Hold [Space] to Talk</span>
+                </>
+              )}
+            </button>
+
+            {/* Right: Auto VAD & Clear Chat Actions */}
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <button
+                onClick={toggleAutoVad}
+                title="Toggle Hands-Free Voice Activity Detection"
+                className={`flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                  isAutoVadEnabled
+                    ? 'bg-teal-50 border-teal-400 text-teal-800 ring-2 ring-teal-400/20'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Radio className={`w-3.5 h-3.5 ${isAutoVadEnabled ? 'text-teal-600 animate-pulse' : 'text-slate-400'}`} />
+                <span className="hidden lg:inline">Auto VAD:</span>
+                <span>{isAutoVadEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+
+              <button
+                onClick={handleClearChat}
+                title="Reset conversation"
+                className="flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Reset</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };

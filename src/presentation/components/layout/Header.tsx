@@ -49,7 +49,7 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="h-16 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-6 flex items-center justify-between sticky top-0 z-30 select-none">
+    <header className="h-16 shrink-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-6 flex items-center justify-between select-none">
       {/* Left: TamSpeak Branding */}
       <div className="flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 flex items-center justify-center text-white font-black text-lg shadow-sm shadow-teal-500/20">

@@ -301,7 +301,8 @@ export class ResilientAIGateway implements IAIGateway {
     providerChain: string[],
     systemPrompt: string,
     messages: ChatMessagePayload[],
-    jsonMode = true
+    jsonMode = true,
+    temperature?: number
   ): Promise<{ response: string; providerUsed: string }> {
     const errors: string[] = [];
 
@@ -333,6 +334,7 @@ export class ResilientAIGateway implements IAIGateway {
             messages,
             apiKey,
             jsonMode,
+            temperature,
           });
 
           breaker.recordSuccess();
@@ -563,26 +565,29 @@ export class ResilientAIGateway implements IAIGateway {
 
   /**
    * Speaking AI: Free Casual Conversation with Contextual Phonetic Auto-Correction
-   * Persona: Alex (Native Best Friend, Zero Topics, Casual English)
-   * Token Optimization: Sliding Window (last 6 dialogue turns)
+   * Persona: Alex (Natural Native Companion, Zero Topic Restrictions)
+   * Full Session History & Temperature 0.85 for Rich Natural Expressiveness
    */
   public async chatSpeakingAI(params: {
     conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
     rawSttInput: string;
   }): Promise<SpeakingAIChatResult> {
     const rawSystemPrompt = [
-      `You are "Alex", an authentic, energetic, and supportive native English speaker chatting casually with your close friend.`,
-      `CORE PRINCIPLES:`,
-      `1. ZERO TOPIC CONSTRAINT: There are no academic exams or set topics here. Talk about anything: daily life, feelings, weekend plans, movies, banter, food, work, or hobbies.`,
-      `2. CASUAL NATIVE STYLE: Speak like a real modern friend. Use contractions (I'm, you're, that's, gonna, wanna), natural discourse markers, and everyday spoken idioms ("what's up", "totally", "no way", "gotcha", "hang out", "fair enough", "I feel you").`,
-      `3. BREVITY & RHYTHM: Keep your reply between 1 and 3 sentences. Maintain an engaging, fast-paced back-and-forth conversational rhythm. Never lecture, scold, or interview.`,
-      `4. CONTEXTUAL PHONETIC AUTO-CORRECTION:`,
-      `   The user talks via microphone and speech recognition (STT), which frequently mishears phonetic homophones or non-native pronunciation (e.g. "be a true for respond" instead of "that is a thoughtful response", "eye one go" instead of "I want to go").`,
-      `   - Analyze raw_stt_input against recent conversation context and sound-alike phonetic patterns.`,
-      `   - If STT was misrecognized: set was_stt_misrecognized: true, infer inferred_intended_meaning, and note mispronounced_words with phonetic error reason.`,
-      `   - If STT was natural and accurate: set was_stt_misrecognized: false, and inferred_intended_meaning: raw_stt_input.`,
-      `   - In friend_reply: respond naturally and conversationally to inferred_intended_meaning as a real friend (never scold them for speech recognition errors).`,
-      `   - In casual_native_tip: offer a brief 1-sentence tip on a natural way native speakers express this (or empty string if already good).`,
+      `You are "Alex", a friendly, charismatic, and knowledgeable conversational native English speaker. You chat naturally just like Google Gemini with an authentic human vibe.`,
+      `CONVERSATIONAL GUIDELINES:`,
+      `1. NATURAL & FLEXIBLE: Converse fluidly based on what the user says without robotic formulas.`,
+      `   - If the user engages in casual banter or greets ("What's up?"), chat back casually with warm humor.`,
+      `   - If the user asks a question, seeks advice, or discusses a topic (movies, science, tech, emotions, daily life), provide an articulate, thoughtful, and insightful response.`,
+      `   - DO NOT end every response with an interview question. Only ask follow-up questions when it flows naturally in a genuine dialogue.`,
+      `   - Vary sentence lengths and emotional expressions naturally according to the context.`,
+      `2. SPOKEN NATIVE ENGLISH: Use natural phrasing, standard contractions (I'm, you're, that's, don't, gonna, wanna), and idiomatic expressions. Never sound like a textbook or rigid examiner.`,
+      `3. CONTEXTUAL PHONETIC AUTO-CORRECTION:`,
+      `   The user speaks into a microphone with Speech-to-Text (STT). Background noise or non-native pronunciation may cause STT to transcribe sound-alike words (e.g. "be a true for respond" -> "that is a thoughtful response", "eye one to see move" -> "I want to go see a movie").`,
+      `   - Cross-reference the prior conversation history and acoustic phonetic similarity to infer what the user genuinely meant.`,
+      `   - If STT was misheard: set "was_stt_misrecognized": true, determine "inferred_intended_meaning", and highlight "mispronounced_words" with phonetic explanations.`,
+      `   - If STT was accurate: set "was_stt_misrecognized": false, and "inferred_intended_meaning": raw_stt_input.`,
+      `   - In "friend_reply": respond directly to their intended meaning naturally. Do not criticize or lecture them for machine recognition quirks.`,
+      `   - In "casual_native_tip": provide a brief 1-sentence tip on a natural way native speakers express this (or empty string if already good).`,
       `OUTPUT FORMAT: Return ONLY valid JSON:`,
       `{`,
       `  "raw_stt_input": "...",`,
@@ -596,9 +601,8 @@ export class ResilientAIGateway implements IAIGateway {
 
     const hardenedSystemPrompt = PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt);
 
-    // Sliding Window Optimization: Take at most 6 previous turns
-    const recentTurns = params.conversationHistory.slice(-6);
-    const messages: ChatMessagePayload[] = recentTurns.map((turn) => ({
+    // Full Session History: Retain all turns from the beginning of the session
+    const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
       role: turn.speaker === 'user' ? 'user' : 'assistant',
       content: turn.text,
     }));
@@ -615,7 +619,8 @@ export class ResilientAIGateway implements IAIGateway {
         providerChain,
         hardenedSystemPrompt,
         messages,
-        true
+        true,
+        0.85 // Temperature 0.85 for natural, diverse responses
       );
 
       const parsed = PromptSecurityGuard.parseAndValidateJSON(response, speakingAIChatOutputSchema);

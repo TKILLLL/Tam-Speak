@@ -443,7 +443,17 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   // Speaking AI: Ephemeral In-Memory Chat (RAM-only, volatile)
   ephemeralMessages: [],
   addEphemeralMessage: (turn) =>
-    set((state) => ({ ephemeralMessages: [...state.ephemeralMessages, turn] })),
+    set((state) => {
+      const last = state.ephemeralMessages[state.ephemeralMessages.length - 1];
+      if (
+        last &&
+        (last.id === turn.id ||
+          (last.speaker === turn.speaker && last.text.trim() === turn.text.trim()))
+      ) {
+        return state;
+      }
+      return { ephemeralMessages: [...state.ephemeralMessages, turn] };
+    }),
   clearEphemeralMessages: () => set({ ephemeralMessages: [] }),
 
   // Practice Configuration

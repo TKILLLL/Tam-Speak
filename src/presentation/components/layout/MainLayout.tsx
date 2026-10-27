@@ -80,54 +80,57 @@ export const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 antialiased overflow-hidden">
-      {/* Top Application Header */}
-      <Header />
+    <div className="h-screen w-screen overflow-hidden flex bg-slate-50 font-sans text-slate-900 antialiased">
+      {/* Left Column: Fixed Navigation Sidebar */}
+      <Sidebar />
 
-      {/* Main 3-Column Workspace Layout */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Column: Collapsible 5-Item Navigation Sidebar */}
-        <Sidebar />
+      {/* Right Column: Main Application Shell Wrapper */}
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+        {/* Topbar: Fixed Header */}
+        <Header />
 
-        {/* Center Column: Main Voice Stage / Secondary View */}
-        <main className="flex-1 flex overflow-hidden relative">
-          {renderCurrentView()}
+        {/* Content Workspace: Scoped Scrolling per view */}
+        <div className="flex-1 flex overflow-hidden min-h-0 relative">
+          {/* Center Column: Main Active View */}
+          <main className="flex-1 flex flex-col overflow-hidden relative min-h-0 min-w-0">
+            {renderCurrentView()}
 
-          {/* Floating Mobile Panel Toggle Button (Only in conversation practice) */}
-          {currentView === 'conversation' && (
+            {/* Floating Mobile Panel Toggle Button (Only in conversation practice) */}
+            {currentView === 'conversation' && (
+              <button
+                onClick={() => setRightPanelOpenMobile(true)}
+                className="lg:hidden absolute bottom-5 right-5 z-30 p-3 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-transform active:scale-95"
+                title="Open Controls & Q&A"
+              >
+                <SlidersHorizontal className="w-5 h-5" />
+              </button>
+            )}
+          </main>
+
+          {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
+          {currentView === 'conversation' && !rightPanelCollapsed && (
+            <div className="p-4 pl-0 hidden lg:block h-full overflow-hidden">
+              <RightControlPanel />
+            </div>
+          )}
+
+          {/* Floating Expand Button for Right Panel when Collapsed */}
+          {currentView === 'conversation' && rightPanelCollapsed && (
             <button
-              onClick={() => setRightPanelOpenMobile(true)}
-              className="lg:hidden absolute bottom-5 right-5 z-30 p-3 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-transform active:scale-95"
-              title="Open Controls & Q&A"
+              onClick={() => setRightPanelCollapsed(false)}
+              title="Mở bảng điều khiển"
+              className="hidden lg:flex fixed top-20 right-6 z-30 items-center gap-2 px-3.5 py-2 bg-white/95 hover:bg-white text-slate-700 rounded-2xl shadow-md border border-slate-200 backdrop-blur-md transition-all hover:scale-105 active:scale-95"
             >
-              <SlidersHorizontal className="w-5 h-5" />
+              <PanelRightOpen className="w-4 h-4 text-teal-600" />
+              <span className="text-xs font-bold text-slate-700">Mở bảng điều khiển</span>
+              {dialogueTurns.length > 0 && (
+                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  {dialogueTurns.length}
+                </span>
+              )}
             </button>
           )}
-        </main>
-
-        {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
-        {currentView === 'conversation' && !rightPanelCollapsed && (
-          <div className="p-4 pl-0 hidden lg:block">
-            <RightControlPanel />
-          </div>
-        )}
-
-        {/* Floating Expand Button for Right Panel when Collapsed */}
-        {currentView === 'conversation' && rightPanelCollapsed && (
-          <button
-            onClick={() => setRightPanelCollapsed(false)}
-            title="Mở bảng điều khiển"
-            className="hidden lg:flex fixed top-20 right-6 z-30 items-center gap-2 px-3.5 py-2 bg-white/95 hover:bg-white text-slate-700 rounded-2xl shadow-md border border-slate-200 backdrop-blur-md transition-all hover:scale-105 active:scale-95"
-          >
-            <PanelRightOpen className="w-4 h-4 text-teal-600" />
-            <span className="text-xs font-bold text-slate-700">Mở bảng điều khiển</span>
-            {dialogueTurns.length > 0 && (
-              <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-bold flex items-center justify-center">
-                {dialogueTurns.length}
-              </span>
-            )}
-          </button>
-        )}
+        </div>
       </div>
 
       {/* Global Auth Modal */}

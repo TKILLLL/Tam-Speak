@@ -18,13 +18,28 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-    // Convert messages to Gemini contents format
-    const contents = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
+    // Convert messages to Gemini multi-turn contents format
+    // Multi-turn Gemini requirement: First turn must be 'user', roles must alternate
+    const nonSystem = messages.filter((m) => m.role !== 'system');
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+
+    for (const msg of nonSystem) {
+      const role: 'user' | 'model' = msg.role === 'assistant' ? 'model' : 'user';
+      if (contents.length === 0) {
+        if (role === 'model') {
+          // Prepend an initial user turn so conversation starts with 'user'
+          contents.push({ role: 'user', parts: [{ text: 'Hello Alex!' }] });
+        }
+        contents.push({ role, parts: [{ text: msg.content }] });
+      } else {
+        const last = contents[contents.length - 1]!;
+        if (last.role === role) {
+          last.parts.push({ text: msg.content });
+        } else {
+          contents.push({ role, parts: [{ text: msg.content }] });
+        }
+      }
+    }
 
     const requestBody: Record<string, unknown> = {
       contents,
