@@ -13,5 +13,8 @@ export interface IAIProviderStrategy {
     apiKey: string;
     temperature?: number;
     jsonMode?: boolean;
+    maxOutputTokens?: number;
+    timeoutMs?: number;
   }): Promise<string>;
 }
+

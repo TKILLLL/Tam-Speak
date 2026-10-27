@@ -6,6 +6,7 @@ import { SupabaseVocabRepository } from '../infrastructure/repositories/Supabase
 import { DexieLocalAudioRepository } from '../infrastructure/repositories/DexieLocalAudioRepository';
 
 import { ResilientAIGateway } from '../infrastructure/ai/ResilientAIGateway';
+import { getActiveGeminiApiKey, DEFAULT_GEMINI_FALLBACK_KEY } from '../infrastructure/ai/AIService';
 import { UnifiedDictionaryGateway } from '../infrastructure/external/UnifiedDictionaryGateway';
 import { WebCryptoVaultService } from '../infrastructure/security/WebCryptoVaultService';
 import { TokenBucketRateLimiter } from '../infrastructure/security/TokenBucketRateLimiter';
@@ -65,15 +66,15 @@ export class DIContainer {
     this.vocabRepository = new SupabaseVocabRepository(supabase);
     this.localAudioRepository = new DexieLocalAudioRepository();
 
-    // 2. Gateways & AppSec Services
-    const defaultGeminiKey =
-      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) ||
-      (typeof process !== 'undefined' && process.env?.VITE_GEMINI_API_KEY) ||
-      '';
+    // 2. Gateways & AppSec Services (Immediately hydrated with personal or environment key)
+    const initialGeminiKey = getActiveGeminiApiKey();
 
     this.aiGateway = new ResilientAIGateway({
-      geminiKeys: defaultGeminiKey ? [defaultGeminiKey] : [],
+      geminiKeys: [initialGeminiKey],
     });
+    if (initialGeminiKey && initialGeminiKey !== DEFAULT_GEMINI_FALLBACK_KEY) {
+      this.aiGateway.setPersonalKey('gemini', initialGeminiKey);
+    }
     this.dictionaryGateway = new UnifiedDictionaryGateway();
     this.cryptoService = new WebCryptoVaultService();
     this.rateLimiter = new TokenBucketRateLimiter();

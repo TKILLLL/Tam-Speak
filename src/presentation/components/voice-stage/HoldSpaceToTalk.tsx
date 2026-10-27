@@ -25,72 +25,6 @@ const RANDOM_STARTER_TOPICS = [
   },
 ];
 
-const TRICKY_PRONUNCIATION_RULES: Record<
-  string,
-  { ipa: string; reason: string; alt: string }
-> = {
-  thought: {
-    ipa: '/θɔːt/',
-    reason: 'Omitted voiceless dental fricative /θ/ or released final /t/ weakly',
-    alt: 'Release crisp final /t/ with tongue behind teeth',
-  },
-  comfortable: {
-    ipa: '/ˈkʌmftəbl/',
-    reason: 'Pronounced extra middle syllable (/kʌm-fɔː-teɪ-bl/)',
-    alt: 'Pronounce with 3 syllables: /ˈkʌmftəbl/',
-  },
-  specifically: {
-    ipa: '/spəˈsɪfɪkli/',
-    reason: 'Weak initial /sp/ cluster, incorrect stress placement',
-    alt: 'Stress 2nd syllable: /spə-ˈsɪ-fɪk-li/',
-  },
-  schedule: {
-    ipa: '/ˈskedʒuːl/',
-    reason: 'Inaccurate consonant blend or vowel sound',
-    alt: 'Clean /sk/ onset with /ˈskedʒuːl/',
-  },
-  clothes: {
-    ipa: '/kləʊðz/',
-    reason: 'Read as two syllables instead of one (/kləʊðz/)',
-    alt: 'Rhymes with "goes", single syllable',
-  },
-  receipt: {
-    ipa: '/rɪˈsiːt/',
-    reason: 'Pronounced silent letter "p"',
-    alt: 'Letter "p" is silent, say /rɪ-ˈsiːt/',
-  },
-  island: {
-    ipa: '/ˈaɪlənd/',
-    reason: 'Pronounced silent letter "s"',
-    alt: 'Letter "s" is silent, say /ˈaɪ-lənd/',
-  },
-  environment: {
-    ipa: '/ɪnˈvaɪrənmənt/',
-    reason: 'Dropped /n/ before /m/ or weak ending cluster /nt/',
-    alt: 'Articulate ending cluster /nt/ clearly',
-  },
-  colleague: {
-    ipa: '/ˈkɒliːɡ/',
-    reason: 'Mispronounced ending sound as /kɒ-liː-gjuː/',
-    alt: 'Pronounce ending /ɡ/ without extra vowel',
-  },
-  technology: {
-    ipa: '/tekˈnɒlədʒi/',
-    reason: 'Misplaced primary stress on 1st syllable',
-    alt: 'Primary stress on 2nd syllable /tek-ˈnɒ-lə-dʒi/',
-  },
-  architecture: {
-    ipa: '/ˈɑːkɪtektʃər/',
-    reason: 'Pronounced "ch" as /tʃ/ instead of /k/',
-    alt: 'Pronounce "ch" as hard /k/',
-  },
-  entrepreneur: {
-    ipa: '/ˌɒntrəprəˈnɜːr/',
-    reason: 'French loanword, stress on final syllable',
-    alt: 'Stress final syllable with /ˌɒntrəprəˈnɜːr/',
-  },
-};
-
 export const HoldSpaceToTalk: React.FC = () => {
   const {
     setOrbState,
@@ -279,36 +213,13 @@ export const HoldSpaceToTalk: React.FC = () => {
       return;
     }
 
-    // 4. Analyze user utterance for pronunciation and vocabulary mistakes
+    // 4. Mistakes array to be populated dynamically by real LLM Examiner evaluation
     const detectedMistakes: Array<{
       word: string;
       reason: string;
       ipa: string;
       suggestedAlternative: string;
     }> = [];
-
-    const rawWords = spokenTranscript.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z]/g, ''));
-    rawWords.forEach((word) => {
-      if (TRICKY_PRONUNCIATION_RULES[word]) {
-        const rule = TRICKY_PRONUNCIATION_RULES[word]!;
-        detectedMistakes.push({
-          word,
-          ipa: rule.ipa,
-          reason: rule.reason,
-          suggestedAlternative: rule.alt,
-        });
-
-        // Auto-save mistake to Pronunciation & IPA Lab
-        addPronunciationMistake({
-          word,
-          ipa: rule.ipa,
-          contextSentence: spokenTranscript,
-          errorReason: rule.reason,
-          suggestedAlternative: rule.alt,
-          topicTitle: activeTopic?.title || 'Daily Conversation',
-        });
-      }
-    });
 
     const audioUrl = recResult?.blob ? URL.createObjectURL(recResult.blob) : undefined;
     const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);

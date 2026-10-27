@@ -13,8 +13,18 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
     apiKey: string;
     temperature?: number;
     jsonMode?: boolean;
+    maxOutputTokens?: number;
+    timeoutMs?: number;
   }): Promise<string> {
-    const { systemPrompt, messages, apiKey, temperature = 0.7, jsonMode = false } = params;
+    const {
+      systemPrompt,
+      messages,
+      apiKey,
+      temperature = 0.7,
+      jsonMode = false,
+      maxOutputTokens = 800,
+      timeoutMs = 15_000,
+    } = params;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent`;
 
@@ -48,13 +58,13 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
       },
       generationConfig: {
         temperature,
-        maxOutputTokens: 600,
+        maxOutputTokens,
         responseMimeType: jsonMode ? 'application/json' : 'text/plain',
       },
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10_000); // 10s fast timeout for speech response
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(url, {

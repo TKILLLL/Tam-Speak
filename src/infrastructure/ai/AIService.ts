@@ -9,13 +9,34 @@ export const DEFAULT_GEMINI_FALLBACK_KEY =
 export const GEMINI_MODELS_FALLBACK_CHAIN = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
   'gemini-1.5-flash',
+  'gemini-1.5-pro',
   'gemini-2.5-pro',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
+
+/**
+ * Global single source of truth for resolving active Google Gemini API Key:
+ * 1. Personal BYOK key saved in LocalStorage ('tamspeak_byok_gemini')
+ * 2. Vite environment variable VITE_GEMINI_API_KEY
+ * 3. Default fallback key (securely base64 decoded)
+ */
+export function getActiveGeminiApiKey(): string {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const personal = window.localStorage.getItem('tamspeak_byok_gemini');
+    if (personal && personal.trim().length > 0) {
+      return personal.trim();
+    }
+  }
+
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
+    const envKey = import.meta.env.VITE_GEMINI_API_KEY.trim();
+    if (envKey.length > 0) return envKey;
+  }
+
+  return DEFAULT_GEMINI_FALLBACK_KEY;
+}
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -60,24 +81,10 @@ export class AIService {
   private vocabHintsCache = new Map<string, GeneratedVocabHints>();
 
   /**
-   * Retrieves active Gemini API Key:
-   * 1. User Personal Key from localStorage (BYOK)
-   * 2. Fallback Default Test Key
+   * Retrieves active Gemini API Key from the global resolver
    */
   public getActiveApiKey(): string {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const personal = window.localStorage.getItem('tamspeak_byok_gemini');
-      if (personal && personal.trim().length > 0) {
-        return personal.trim();
-      }
-    }
-
-    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
-      const envKey = import.meta.env.VITE_GEMINI_API_KEY.trim();
-      if (envKey.length > 0) return envKey;
-    }
-
-    return DEFAULT_GEMINI_FALLBACK_KEY;
+    return getActiveGeminiApiKey();
   }
 
   public getCurrentModel(): GeminiModelName {
@@ -86,7 +93,7 @@ export class AIService {
 
   /**
    * Low-level resilient REST caller with automatic model fallback on 429, 503, 404
-   * Optimized with 10s per-model timeout and configurable maxOutputTokens
+   * Configurable timeout and token limits (default: 800 tokens, 15s timeout)
    */
   public async generateContent(params: {
     systemPrompt: string;
@@ -94,8 +101,16 @@ export class AIService {
     temperature?: number;
     jsonMode?: boolean;
     maxOutputTokens?: number;
+    timeoutMs?: number;
   }): Promise<string> {
-    const { systemPrompt, messages, temperature = 0.6, jsonMode = false, maxOutputTokens = 512 } = params;
+    const {
+      systemPrompt,
+      messages,
+      temperature = 0.6,
+      jsonMode = false,
+      maxOutputTokens = 800,
+      timeoutMs = 15_000,
+    } = params;
     const apiKey = this.getActiveApiKey();
 
     // Prepare contents array for Gemini REST
@@ -140,7 +155,7 @@ export class AIService {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
       const controller = new AbortController();
-      const timeoutTimer = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+      const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         const response = await fetch(url, {
@@ -181,7 +196,7 @@ export class AIService {
         return text.trim();
       } catch (err: any) {
         clearTimeout(timeoutTimer);
-        const errMsg = err?.name === 'AbortError' ? 'Timeout (10s)' : (err as Error).message;
+        const errMsg = err?.name === 'AbortError' ? `Timeout (${Math.round(timeoutMs / 1000)}s)` : (err as Error).message;
         errors.push(`${modelName}: ${errMsg}`);
         // If not the last model in chain, try next model
         this.activeModelIndex = (modelIndex + 1) % GEMINI_MODELS_FALLBACK_CHAIN.length;
@@ -259,7 +274,8 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.5,
         jsonMode: true,
-        maxOutputTokens: 600,
+        maxOutputTokens: 800,
+        timeoutMs: 12_000,
       });
 
       const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
@@ -342,7 +358,8 @@ Generate JSON evaluation and transition now.`;
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.6,
         jsonMode: true,
-        maxOutputTokens: 400,
+        maxOutputTokens: 800,
+        timeoutMs: 12_000,
       });
 
       const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
@@ -399,7 +416,8 @@ Return ONLY valid JSON:
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.3,
         jsonMode: true,
-        maxOutputTokens: 450,
+        maxOutputTokens: 1200,
+        timeoutMs: 18_000,
       });
 
       const parsed = this.cleanAndParseJson<PlacementTestResult>(raw, {

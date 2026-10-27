@@ -14,7 +14,7 @@ import { PromptSecurityGuard } from '../security/PromptSecurityGuard';
 import { IAIProviderStrategy, ChatMessagePayload } from './providers/IAIProviderStrategy';
 import { GeminiProviderStrategy } from './providers/GeminiProviderStrategy';
 import { useTamSpeakStore } from '../../presentation/store';
-import { DEFAULT_GEMINI_FALLBACK_KEY } from './AIService';
+import { DEFAULT_GEMINI_FALLBACK_KEY, getActiveGeminiApiKey } from './AIService';
 
 // --- Zod Schemas for LLM Output Validation ---
 
@@ -96,13 +96,21 @@ export interface KeyPoolEntry {
   currentIndex: number;
 }
 
+export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
+  'gemini_2_5_flash',
+  'gemini_2_5_flash_lite',
+  'gemini_1_5_flash',
+  'gemini_1_5_pro',
+  'gemini_2_5_pro',
+] as const;
+
 /**
  * ResilientAIGateway
  * Production Google Gemini 100% Native REST Gateway:
  * - Direct REST fetch with X-goog-api-key header
- * - Automatic Fallback Chain: gemini-flash-latest -> gemini-2.5-flash -> gemini-2.5-flash-lite -> gemini-2.5-pro -> gemini-2.0-flash -> gemini-2.0-flash-lite
+ * - Automatic Fallback Chain: gemini-2.5-flash -> gemini-2.5-flash-lite -> gemini-1.5-flash -> gemini-1.5-pro -> gemini-2.5-pro
  * - Automatic failover on 429/503/404 with instant badge update in Header
- * - Fallback Default Test Key configured safely via Base64
+ * - Unified Key Resolution (BYOK from LocalStorage -> Env -> Secure Fallback)
  */
 export class ResilientAIGateway implements IAIGateway {
   private readonly strategies: Map<string, IAIProviderStrategy> = new Map();
@@ -115,31 +123,46 @@ export class ResilientAIGateway implements IAIGateway {
       geminiKeys?: string[];
     }
   ) {
-    // Register Official Gemini Models in priority order (ultra-fast flash first)
+    // Register active official Gemini Models in priority order (ultra-fast flash first)
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash', 'gemini-2.5-flash'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash_lite', 'gemini-2.5-flash-lite'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash', 'gemini-2.0-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash_lite', 'gemini-2.0-flash-lite'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_flash', 'gemini-1.5-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_pro', 'gemini-1.5-pro'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
 
-    // Initialize Key Pool with default fallback key
-    const initialKeys = customKeyConfig?.geminiKeys && customKeyConfig.geminiKeys.length > 0
-      ? customKeyConfig.geminiKeys
-      : [DEFAULT_GEMINI_FALLBACK_KEY];
+    // Initialize Key Pool with unified active key
+    const initialKey = getActiveGeminiApiKey();
+    const initialKeys =
+      customKeyConfig?.geminiKeys && customKeyConfig.geminiKeys.length > 0
+        ? customKeyConfig.geminiKeys
+        : [initialKey];
 
     this.setKeyPool('gemini', initialKeys);
+
+    if (initialKey && initialKey !== DEFAULT_GEMINI_FALLBACK_KEY) {
+      this.personalKeys.set('gemini', initialKey);
+    }
   }
 
   public setPersonalKey(provider: 'gemini', key: string | null): void {
     if (!key || key.trim().length === 0) {
       this.personalKeys.delete(provider);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(`tamspeak_byok_${provider}`);
+      }
     } else {
-      this.personalKeys.set(provider, key.trim());
+      const trimmed = key.trim();
+      this.personalKeys.set(provider, trimmed);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(`tamspeak_byok_${provider}`, trimmed);
+      }
     }
   }
 
   public getPersonalKey(provider: 'gemini'): string | null {
+    if (this.personalKeys.has(provider)) {
+      return this.personalKeys.get(provider)!;
+    }
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = window.localStorage.getItem(`tamspeak_byok_${provider}`);
       if (stored && stored.trim().length > 0) {
@@ -147,10 +170,7 @@ export class ResilientAIGateway implements IAIGateway {
         return stored.trim();
       }
     }
-    if (this.personalKeys.has(provider)) {
-      return this.personalKeys.get(provider)!;
-    }
-    return DEFAULT_GEMINI_FALLBACK_KEY;
+    return null;
   }
 
   public registerStrategy(strategy: IAIProviderStrategy): void {
@@ -169,8 +189,9 @@ export class ResilientAIGateway implements IAIGateway {
 
   /**
    * Retrieves active Gemini API key:
-   * 1. Personal Key (BYOK) from localStorage
-   * 2. Key pool or default fallback key
+   * 1. Personal Key (BYOK) from in-memory / localStorage
+   * 2. Key pool
+   * 3. Global active API key resolver
    */
   private getActiveKey(providerCategory: 'gemini' = 'gemini'): string {
     const personalKey = this.getPersonalKey(providerCategory);
@@ -180,10 +201,11 @@ export class ResilientAIGateway implements IAIGateway {
 
     const pool = this.keyPools.get(providerCategory);
     if (pool && pool.keys.length > 0) {
-      return pool.keys[pool.currentIndex % pool.keys.length]!;
+      const poolKey = pool.keys[pool.currentIndex % pool.keys.length];
+      if (poolKey && poolKey.length > 0) return poolKey;
     }
 
-    return DEFAULT_GEMINI_FALLBACK_KEY;
+    return getActiveGeminiApiKey();
   }
 
   private rotateKey(providerCategory: 'gemini' = 'gemini'): void {
@@ -262,11 +284,15 @@ export class ResilientAIGateway implements IAIGateway {
    * Core Fallback Chain: cycles through Gemini models on 429, 503, 404
    */
   private async executeWithFallback(
-    providerChain: string[],
+    providerChain: readonly string[] | string[],
     systemPrompt: string,
     messages: ChatMessagePayload[],
     jsonMode = true,
-    temperature?: number
+    temperature?: number,
+    options?: {
+      maxOutputTokens?: number;
+      timeoutMs?: number;
+    }
   ): Promise<{ response: string; providerUsed: string }> {
     const errors: string[] = [];
 
@@ -293,6 +319,8 @@ export class ResilientAIGateway implements IAIGateway {
             apiKey,
             jsonMode,
             temperature,
+            maxOutputTokens: options?.maxOutputTokens,
+            timeoutMs: options?.timeoutMs,
           });
 
           breaker.recordSuccess();
@@ -372,21 +400,16 @@ export class ResilientAIGateway implements IAIGateway {
       },
     ];
 
-    const providerChain = [
-      'gemini_2_5_flash',
-      'gemini_2_5_flash_lite',
-      'gemini_2_0_flash',
-      'gemini_2_0_flash_lite',
-      'gemini_1_5_flash',
-      'gemini_2_5_pro',
-    ];
-
     const { response, providerUsed } = await this.executeWithFallback(
-      providerChain,
+      DEFAULT_GEMINI_PROVIDER_CHAIN,
       hardenedSystemPrompt,
       messages,
       true,
-      0.3
+      0.3,
+      {
+        maxOutputTokens: 1800,
+        timeoutMs: 20_000,
+      }
     );
 
     const parsed = PromptSecurityGuard.parseAndValidateJSON(response, evaluationOutputSchema);
@@ -427,21 +450,17 @@ export class ResilientAIGateway implements IAIGateway {
       content: isolatedUserMessage,
     });
 
-    const providerChain = [
-      'gemini_2_5_flash',
-      'gemini_2_5_flash_lite',
-      'gemini_2_0_flash',
-      'gemini_2_0_flash_lite',
-      'gemini_1_5_flash',
-      'gemini_2_5_pro',
-    ];
-
     try {
       const { response, providerUsed } = await this.executeWithFallback(
-        providerChain,
+        DEFAULT_GEMINI_PROVIDER_CHAIN,
         hardenedSystemPrompt,
         messages,
-        true
+        true,
+        undefined,
+        {
+          maxOutputTokens: 800,
+          timeoutMs: 12_000,
+        }
       );
 
       const parsed = PromptSecurityGuard.parseAndValidateJSON(response, roleplayReplyOutputSchema);
@@ -492,22 +511,17 @@ export class ResilientAIGateway implements IAIGateway {
       content: PromptSecurityGuard.isolateUserInput(params.rawSttInput),
     });
 
-    const providerChain = [
-      'gemini_2_5_flash',
-      'gemini_2_5_flash_lite',
-      'gemini_2_0_flash',
-      'gemini_2_0_flash_lite',
-      'gemini_1_5_flash',
-      'gemini_2_5_pro',
-    ];
-
     try {
       const { response, providerUsed } = await this.executeWithFallback(
-        providerChain,
+        DEFAULT_GEMINI_PROVIDER_CHAIN,
         PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt),
         messages,
         true,
-        0.85
+        0.85,
+        {
+          maxOutputTokens: 800,
+          timeoutMs: 12_000,
+        }
       );
 
       return this.parseSpeakingAIOutput(response, params.rawSttInput, providerUsed);
@@ -599,21 +613,16 @@ export class ResilientAIGateway implements IAIGateway {
       },
     ];
 
-    const providerChain = [
-      'gemini_2_5_flash',
-      'gemini_2_5_flash_lite',
-      'gemini_2_0_flash',
-      'gemini_2_0_flash_lite',
-      'gemini_1_5_flash',
-      'gemini_2_5_pro',
-    ];
-
     const { response } = await this.executeWithFallback(
-      providerChain,
+      DEFAULT_GEMINI_PROVIDER_CHAIN,
       hardenedSystemPrompt,
       messages,
       true,
-      0.5
+      0.5,
+      {
+        maxOutputTokens: 800,
+        timeoutMs: 15_000,
+      }
     );
 
     const parsed = PromptSecurityGuard.parseAndValidateJSON(response, upgradeExpressionOutputSchema);
