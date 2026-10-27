@@ -8,12 +8,14 @@ export const InteractiveTranscriptBox: React.FC = () => {
   const {
     lastAIMessage,
     currentExaminerPrompt,
+    liveSpeechTranscript,
+    orbState,
     isLastMessageHidden,
     toggleHideLastMessage,
     setOrbState,
   } = useTamSpeakStore();
 
-  const textToDisplay = currentExaminerPrompt || lastAIMessage;
+  const textToDisplay = lastAIMessage || currentExaminerPrompt || 'Welcome to TamSpeak. Hold Space to start speaking!';
 
   const [isPlayingReplay, setIsPlayingReplay] = useState(false);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
@@ -133,7 +135,17 @@ export const InteractiveTranscriptBox: React.FC = () => {
           onMouseUp={handleMouseUp}
           className="min-h-[4rem] flex items-center justify-center text-center p-2"
         >
-          {isLastMessageHidden ? (
+          {orbState === 'listening' ? (
+            <div className="py-1 flex flex-col items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-teal-600 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping" />
+                Listening to you...
+              </span>
+              <p className="text-slate-800 text-sm font-medium italic">
+                {liveSpeechTranscript ? `"${liveSpeechTranscript}"` : 'Listening for your voice...'}
+              </p>
+            </div>
+          ) : isLastMessageHidden ? (
             <div className="py-2 text-slate-400 italic text-sm flex items-center gap-2 select-none">
               <Volume2 className="w-4 h-4 text-teal-600 animate-pulse" />
               <span>Transcript hidden to train listening reflex. Press [H] to reveal.</span>

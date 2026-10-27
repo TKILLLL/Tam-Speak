@@ -12,6 +12,12 @@ import { CustomTopicBuilder } from './CustomTopicBuilder';
 import { container } from '../../../di/DIContainer';
 import { PracticeMode, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { SkillLevel } from '../../../domain/entities/User';
+import {
+  getRandomIELTSQuestion,
+  generateFullMockTestPackage,
+  IELTS_QUESTION_BANK,
+} from '../../../infrastructure/data/ieltsQuestionBank';
+import { aiService } from '../../../infrastructure/ai/AIService';
 
 const mapPresetToActivePart = (presetId: string, mode: string): ActivePartType => {
   if (presetId === 'p1' || mode === 'ielts_part1') return 'part1';
@@ -101,16 +107,7 @@ const CONVERSATION_PRESETS: PresetCard[] = [
   },
 ];
 
-const CURATED_IELTS_TOPICS = [
-  'Hometown and Local Neighborhood',
-  'Studies vs Work and Career Plans',
-  'Accommodation & Living Spaces',
-  'Weather, Seasons & Climate',
-  'Public Transportation & Commuting',
-  'Modern Technology & Artificial Intelligence',
-  'Reading Habits & Favorite Books',
-  'Health, Sports & Outdoor Leisure',
-];
+const CURATED_IELTS_TOPICS = IELTS_QUESTION_BANK.map((t) => t.topicTitle);
 
 export const QuickStartTab: React.FC = () => {
   const {
@@ -138,6 +135,9 @@ export const QuickStartTab: React.FC = () => {
     addPronunciationMistake,
     setHasShownRevealWarningInSession,
     setRightPanelTab,
+    setMockTestProgress,
+    setAiVocabHints,
+    setIsLoadingVocabHints,
   } = useTamSpeakStore();
 
   const [activeCategory, setActiveCategory] = useState<'ielts' | 'conversation'>('ielts');
@@ -235,18 +235,38 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 6. Generate tailored initial greeting question
+    // 6. Generate tailored initial greeting question from Question Bank
     let greeting = '';
     if (mode === 'ielts_part1') {
-      greeting = `Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today's topic is: "${title}". Could you please tell me where you are from and what you like most about your hometown?`;
+      const picked = getRandomIELTSQuestion({ part: 'part1', topicIdOrTitle: title });
+      greeting = `Welcome to Part 1 of the IELTS Speaking test. My name is your AI examiner. Today's topic is: "${title}". ${picked.question}`;
+      setMockTestProgress(null);
     } else if (mode === 'ielts_part2') {
-      greeting = `Welcome to Part 2 of the IELTS Speaking test. Your cue card topic is: "${title}". You should say: what it is, when and where it took place, who was involved, and explain why this was important to you. You have 1 minute to prepare your notes, then speak for up to 2 minutes. When ready, press and hold Space to begin speaking!`;
+      const picked = getRandomIELTSQuestion({ part: 'part2', topicIdOrTitle: title });
+      greeting = `Welcome to Part 2 of the IELTS Speaking test. Your cue card topic is: "${picked.cueCard?.cueCardTitle || title}".\n\n${picked.question}\n\nYou have 1 minute to prepare your notes, then speak for up to 2 minutes. When ready, press and hold Space to begin speaking!`;
+      setMockTestProgress(null);
     } else if (mode === 'ielts_part3') {
-      greeting = `Welcome to Part 3 of the IELTS Speaking test: Analytical Discussion. Let us explore "${title}". In your opinion, what major developments have impacted this area in recent years?`;
+      const picked = getRandomIELTSQuestion({ part: 'part3', topicIdOrTitle: title });
+      greeting = `Welcome to Part 3 of the IELTS Speaking test: Two-Way Discussion on "${title}". ${picked.question}`;
+      setMockTestProgress(null);
     } else if (mode === 'ielts_full_mock') {
-      greeting = `Welcome to your Full IELTS Speaking Mock Test. We will complete Part 1, Part 2, and Part 3 consecutively. Let us begin with Part 1: "${title}". Could you please introduce yourself and describe your current daily routine?`;
+      const pkg = generateFullMockTestPackage(title);
+      setMockTestProgress({
+        topicTitle: title,
+        currentPart: 1,
+        questionIndex: 0,
+        part1Questions: pkg.part1Questions.map((q) => q.question),
+        part2CueCard: {
+          title: pkg.part2CueCard.cueCardTitle,
+          cueBulletPoints: pkg.part2CueCard.youShouldSay,
+        },
+        part3Questions: pkg.part3Questions.map((q) => q.question),
+      });
+      const firstQ = pkg.part1Questions[0]?.question || 'Could you please introduce yourself and your daily routine?';
+      greeting = `Welcome to your Full IELTS Speaking Mock Test. We will progress through Parts 1, 2, and 3. Let us begin with Part 1: "${title}". ${firstQ}`;
     } else {
       greeting = `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, hold [Space] and share your thoughts!`;
+      setMockTestProgress(null);
     }
 
     const calculatedPart = mapPresetToActivePart(preset.id, mode);
@@ -254,6 +274,18 @@ export const QuickStartTab: React.FC = () => {
     setActiveTopicTitle(title);
     setCurrentExaminerPrompt(greeting);
     setLastAIMessage(greeting);
+
+    // Dynamic Vocab Hints generation in background
+    setIsLoadingVocabHints(true);
+    aiService
+      .generateVocabHints(title, greeting)
+      .then((hints) => {
+        setAiVocabHints(hints);
+        setIsLoadingVocabHints(false);
+      })
+      .catch(() => {
+        setIsLoadingVocabHints(false);
+      });
 
     // 7. Push initial greeting to dialogueTurns so Q&A displays it immediately
     const initialTurn: DialogueTurn = {

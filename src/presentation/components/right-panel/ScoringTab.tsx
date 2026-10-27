@@ -146,8 +146,16 @@ const computeDeterministicIELTSScore = (input: DeterministicScoreInput) => {
   };
 };
 
+export const convertBandToCEFR = (band: number): 'a2' | 'b1' | 'b2' | 'c1' | 'c2' => {
+  if (band < 4.0) return 'a2';
+  if (band <= 5.0) return 'b1';
+  if (band <= 6.5) return 'b2';
+  if (band <= 8.0) return 'c1';
+  return 'c2';
+};
+
 export const ScoringTab: React.FC = () => {
-  const { activeSession, setActiveSession, dialogueTurns, activeTopic, user } = useTamSpeakStore();
+  const { activeSession, setActiveSession, dialogueTurns, activeTopic, user, setUser } = useTamSpeakStore();
   const [evaluating, setEvaluating] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
   const [evaluationData, setEvaluationData] = useState<{
@@ -200,9 +208,8 @@ export const ScoringTab: React.FC = () => {
 
     setEvaluating(true);
     setEvaluationError(null);
+    const sessionId = activeSession?.id || `sess-${Date.now()}`;
     try {
-      const sessionId = activeSession?.id || `sess-${Date.now()}`;
-
       const res = await container.evaluateSpeechUseCase.execute({
         sessionId,
         userId: user?.id || 'guest-user',
@@ -228,6 +235,21 @@ export const ScoringTab: React.FC = () => {
       };
 
       setEvaluationData(evaluated);
+
+      // Sync overall score to user profile and roadmap
+      const newCefr = convertBandToCEFR(evaluated.overallScore);
+      if (user) {
+        const updatedUser = {
+          ...user,
+          currentLevel: newCefr,
+        };
+        setUser(updatedUser);
+        try {
+          localStorage.setItem('tamspeak_user_profile', JSON.stringify(updatedUser));
+        } catch {
+          // ignore
+        }
+      }
 
       if (activeSession) {
         setActiveSession({
@@ -255,6 +277,21 @@ export const ScoringTab: React.FC = () => {
 
       setEvaluationData(fallbackResult);
 
+      // Sync overall score to user profile and roadmap
+      const fallbackCefr = convertBandToCEFR(fallbackResult.overallScore);
+      if (user) {
+        const updatedUser = {
+          ...user,
+          currentLevel: fallbackCefr,
+        };
+        setUser(updatedUser);
+        try {
+          localStorage.setItem('tamspeak_user_profile', JSON.stringify(updatedUser));
+        } catch {
+          // ignore
+        }
+      }
+
       if (activeSession) {
         setActiveSession({
           ...activeSession,
@@ -274,6 +311,48 @@ export const ScoringTab: React.FC = () => {
             vocabularyEnhancements: [],
           },
         });
+      }
+
+      // Persist fallback session to repository for Progress Dashboard
+      try {
+        const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
+        const { BandScore } = await import('../../../domain/value-objects/BandScore');
+        const { SpeechMetrics } = await import('../../../domain/value-objects/SpeechMetrics');
+        const fallbackSession = PSClass.create({
+          id: sessionId,
+          userId: user?.id || 'guest-user',
+          mode: activeSession?.mode || 'ielts_part1',
+          topicId: activeTopic?.id || null,
+        });
+        fallbackSession.startRecording();
+        userTurns.forEach((t) => fallbackSession.appendDialogueTurn(t));
+        fallbackSession.completeRecording(
+          Math.max(15, Math.round(totalSpeechSeconds)),
+          SpeechMetrics.create({
+            wpm: fallbackResult.wpm,
+            hesitationCount: fallbackResult.hesitationCount,
+            silenceDurations: [0.8],
+            totalDurationSeconds: Math.max(15, Math.round(totalSpeechSeconds)),
+          })
+        );
+        fallbackSession.finalizeEvaluation({
+          pronunciationScore: BandScore.create(fallbackResult.pronunciationScore),
+          fluencyScore: BandScore.create(fallbackResult.fluencyScore),
+          lexicalScore: BandScore.create(fallbackResult.lexicalScore),
+          grammarScore: BandScore.create(fallbackResult.grammarScore),
+          detailedFeedback: {
+            summary: 'Evaluated using deterministic IELTS speech metrics algorithm.',
+            strengths: fallbackResult.strengths,
+            weaknesses: fallbackResult.weaknesses,
+            suggestedPhrases: [],
+            grammarCorrections: [],
+            vocabularyEnhancements: [],
+          },
+          aiProviderUsed: 'Deterministic IELTS Engine',
+        });
+        await container.sessionRepository.save(fallbackSession);
+      } catch (e) {
+        console.warn('Fallback session save notice:', e);
       }
     } finally {
       setEvaluating(false);

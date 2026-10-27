@@ -14,10 +14,6 @@ export const App: React.FC = () => {
       if (savedGemini && savedGemini.trim().length > 0) {
         container.aiGateway.setPersonalKey?.('gemini', savedGemini.trim());
       }
-      const savedGroq = window.localStorage.getItem('tamspeak_byok_groq');
-      if (savedGroq && savedGroq.trim().length > 0) {
-        container.aiGateway.setPersonalKey?.('groq', savedGroq.trim());
-      }
     }
   }, []);
 

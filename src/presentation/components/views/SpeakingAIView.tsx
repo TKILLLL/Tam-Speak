@@ -303,7 +303,7 @@ export const SpeakingAIView: React.FC = () => {
       setOrbState('idle');
       const errorMsg =
         (err as Error).message ||
-        'Chưa cấu hình API Key hoặc kết nối AI thất bại. Vui lòng kiểm tra API Key (Google Gemini hoặc Groq) trong mục "AI & Voice Settings".';
+        'Chưa cấu hình API Key hoặc kết nối AI thất bại. Vui lòng kiểm tra API Key Google Gemini trong mục "AI & Voice Settings".';
       setErrorMessage(errorMsg);
 
       // Preserve user speech in the ephemeral stream without fake AI reply

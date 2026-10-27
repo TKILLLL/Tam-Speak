@@ -61,4 +61,5 @@ export interface UserProfileDTO {
   lastPracticeDate: string | null;
   totalPracticeMinutes: number;
   role: 'admin' | 'user';
+  hasCompletedOnboarding?: boolean;
 }

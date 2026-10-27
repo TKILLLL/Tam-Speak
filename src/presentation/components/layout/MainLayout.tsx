@@ -12,11 +12,13 @@ import { ProgressDashboardView } from '../views/ProgressDashboardView';
 import { PronunciationLabView } from '../views/PronunciationLabView';
 import { ProfileView } from '../views/ProfileView';
 import { SpeakingAIView } from '../views/SpeakingAIView';
+import { OnboardingWizardView } from '../views/OnboardingWizardView';
 import { SlidersHorizontal, AlertTriangle, AlertCircle, RefreshCw, PanelRightOpen } from 'lucide-react';
 
 export const MainLayout: React.FC = () => {
   const {
     currentView,
+    hasCompletedOnboarding,
     rightPanelCollapsed,
     setRightPanelCollapsed,
     dialogueTurns,
@@ -52,6 +54,10 @@ export const MainLayout: React.FC = () => {
   };
 
   const renderCurrentView = () => {
+    if (!hasCompletedOnboarding) {
+      return <OnboardingWizardView />;
+    }
+
     switch (currentView) {
       case 'speaking_ai':
         return <SpeakingAIView />;
@@ -108,7 +114,7 @@ export const MainLayout: React.FC = () => {
           </main>
 
           {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
-          {currentView === 'conversation' && !rightPanelCollapsed && (
+          {hasCompletedOnboarding && currentView === 'conversation' && !rightPanelCollapsed && (
             <div className="p-4 pl-0 hidden lg:block h-full overflow-hidden">
               <RightControlPanel />
             </div>

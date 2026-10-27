@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { DialogueTurn } from '../../domain/entities/PracticeSession';
 import { PracticeSessionDTO, CustomTopicDTO, UserProfileDTO } from '../../application/dtos';
+import { GeneratedVocabHints } from '../../infrastructure/ai/AIService';
+
+export interface MockTestProgress {
+  topicTitle: string;
+  currentPart: 1 | 2 | 3;
+  questionIndex: number;
+  part1Questions: string[];
+  part2CueCard: { title: string; cueBulletPoints: string[] } | null;
+  part3Questions: string[];
+}
 
 export type NavigationView =
   | 'speaking_ai'
@@ -201,6 +211,20 @@ export interface TamSpeakState {
   setTargetLevel: (level: 'a2' | 'b1' | 'b2' | 'c1' | 'c2') => void;
   feedbackLanguage: 'en_vn' | 'en_en';
   setFeedbackLanguage: (lang: 'en_vn' | 'en_en') => void;
+
+  // Onboarding
+  hasCompletedOnboarding: boolean;
+  setHasCompletedOnboarding: (completed: boolean) => void;
+
+  // Dynamic AI Vocab Hints
+  aiVocabHints: GeneratedVocabHints | null;
+  setAiVocabHints: (hints: GeneratedVocabHints | null) => void;
+  isLoadingVocabHints: boolean;
+  setIsLoadingVocabHints: (loading: boolean) => void;
+
+  // Full Mock Test Progress Tracker
+  mockTestProgress: MockTestProgress | null;
+  setMockTestProgress: (progress: MockTestProgress | null) => void;
 }
 
 export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
@@ -463,4 +487,29 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setTargetLevel: (targetLevel) => set({ targetLevel }),
   feedbackLanguage: 'en_vn',
   setFeedbackLanguage: (feedbackLanguage) => set({ feedbackLanguage }),
+
+  // Onboarding
+  hasCompletedOnboarding:
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem('tamspeak_onboarding_completed') === 'true'
+      : true,
+  setHasCompletedOnboarding: (completed: boolean) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('tamspeak_onboarding_completed', String(completed));
+    }
+    set((state) => ({
+      hasCompletedOnboarding: completed,
+      user: state.user ? { ...state.user, hasCompletedOnboarding: completed } : null,
+    }));
+  },
+
+  // Dynamic AI Vocab Hints
+  aiVocabHints: null,
+  setAiVocabHints: (aiVocabHints) => set({ aiVocabHints }),
+  isLoadingVocabHints: false,
+  setIsLoadingVocabHints: (isLoadingVocabHints) => set({ isLoadingVocabHints }),
+
+  // Full Mock Test Progress Tracker
+  mockTestProgress: null,
+  setMockTestProgress: (mockTestProgress) => set({ mockTestProgress }),
 }));

@@ -10,9 +10,11 @@ import {
   Zap,
   Save,
   Sparkles,
+  Sliders,
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
+import { GEMINI_MODELS_FALLBACK_CHAIN } from '../../../infrastructure/ai/AIService';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -20,19 +22,18 @@ export const SettingsView: React.FC = () => {
     setActiveAIVoice,
     activeAIProvider,
     setActiveAIProvider,
+    feedbackLanguage,
+    setFeedbackLanguage,
+    practiceMode,
+    setPracticeMode,
+    targetLevel,
+    setTargetLevel,
   } = useTamSpeakStore();
 
-  // 1. BYOK (Personal API Keys) State
+  // 1. Google Gemini BYOK State
   const [geminiKey, setGeminiKey] = useState('');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [geminiTestStatus, setGeminiTestStatus] = useState<{
-    state: 'idle' | 'testing' | 'valid' | 'invalid';
-    message?: string;
-  }>({ state: 'idle' });
-
-  const [groqKey, setGroqKey] = useState('');
-  const [showGroqKey, setShowGroqKey] = useState(false);
-  const [groqTestStatus, setGroqTestStatus] = useState<{
     state: 'idle' | 'testing' | 'valid' | 'invalid';
     message?: string;
   }>({ state: 'idle' });
@@ -45,24 +46,33 @@ export const SettingsView: React.FC = () => {
   // 3. Vault & General Settings State
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Load existing BYOK keys from localStorage on mount
+  // Load existing settings from localStorage on mount
   useEffect(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
+      // Load unified settings bundle
+      const savedBundle = window.localStorage.getItem('tamspeak_settings');
+      if (savedBundle) {
+        try {
+          const parsed = JSON.parse(savedBundle);
+          if (parsed.activeVoice) setActiveAIVoice(parsed.activeVoice);
+          if (parsed.feedbackLanguage) setFeedbackLanguage(parsed.feedbackLanguage);
+          if (parsed.practiceMode) setPracticeMode(parsed.practiceMode);
+          if (parsed.targetLevel) setTargetLevel(parsed.targetLevel);
+        } catch {
+          // ignore
+        }
+      }
+
+      // Load Gemini API Key
       const savedGemini = window.localStorage.getItem('tamspeak_byok_gemini');
       if (savedGemini) {
         setGeminiKey(savedGemini);
         container.aiGateway.setPersonalKey?.('gemini', savedGemini);
       }
-
-      const savedGroq = window.localStorage.getItem('tamspeak_byok_groq');
-      if (savedGroq) {
-        setGroqKey(savedGroq);
-        container.aiGateway.setPersonalKey?.('groq', savedGroq);
-      }
     }
-  }, []);
+  }, [setActiveAIVoice, setFeedbackLanguage, setPracticeMode, setTargetLevel]);
 
-  // Subscribe to voices loaded event
+  // Subscribe to system voices loaded event
   useEffect(() => {
     const updateVoices = () => {
       const voices = container.speechTTSEngine.getVoices();
@@ -76,27 +86,30 @@ export const SettingsView: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // --- BYOK Handlers ---
+  // --- Gemini API Key Handlers ---
   const handleTestGemini = async () => {
     if (!geminiKey.trim()) {
       setGeminiTestStatus({ state: 'invalid', message: 'Vui lòng nhập API Key trước khi kiểm tra.' });
       return;
     }
 
-    setGeminiTestStatus({ state: 'testing', message: 'Đang gửi ping kiểm tra đến Google Gemini API...' });
+    setGeminiTestStatus({ state: 'testing', message: 'Đang gửi ping kiểm tra đến Google Gemini API qua Header X-goog-api-key...' });
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey.trim()}`
-      );
+      // Test using Google REST standard with X-goog-api-key Header
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+        headers: {
+          'X-goog-api-key': geminiKey.trim(),
+        },
+      });
+
       if (response.ok) {
-        // Auto-save immediately upon successful verification so user doesn't have to click a second button
         const trimmedKey = geminiKey.trim();
         window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
         container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
 
         setGeminiTestStatus({
           state: 'valid',
-          message: 'Valid API Key! Đã tự động kích hoạt và lưu vào Local Vault của bạn.',
+          message: 'Valid API Key! Đã xác thực thành công và lưu vào Local Vault.',
         });
         setStatusMessage('Đã tự động lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
         setTimeout(() => setStatusMessage(null), 3500);
@@ -104,8 +117,8 @@ export const SettingsView: React.FC = () => {
         const errorData = await response.json().catch(() => ({}));
         setGeminiTestStatus({
           state: 'invalid',
-          message: `Invalid Key (${response.status}): ${
-            errorData?.error?.message || 'API Key không hợp lệ hoặc chưa kích hoạt Generative Language API.'
+          message: `Lỗi (${response.status}): ${
+            errorData?.error?.message || 'API Key không hợp lệ hoặc chưa được kích hoạt Generative Language API.'
           }`,
         });
       }
@@ -117,12 +130,24 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleSaveGemini = () => {
-    if (!geminiKey.trim()) return;
+  const handleSaveAllSettings = () => {
     const trimmedKey = geminiKey.trim();
-    window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
-    container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
-    setStatusMessage('Đã lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
+    if (trimmedKey) {
+      window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
+      container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
+    }
+
+    const settingsBundle = {
+      geminiKey: trimmedKey,
+      activeVoice: activeAIVoice,
+      feedbackLanguage,
+      practiceMode,
+      targetLevel,
+      updatedAt: new Date().toISOString(),
+    };
+
+    window.localStorage.setItem('tamspeak_settings', JSON.stringify(settingsBundle));
+    setStatusMessage('Đã lưu toàn bộ cấu hình cài đặt vào bộ nhớ thiết bị thành công!');
     setTimeout(() => setStatusMessage(null), 3500);
   };
 
@@ -132,61 +157,6 @@ export const SettingsView: React.FC = () => {
     setGeminiKey('');
     setGeminiTestStatus({ state: 'idle' });
     setStatusMessage('Đã xóa Gemini Key cá nhân. Hệ thống quay về hạn mức mặc định.');
-    setTimeout(() => setStatusMessage(null), 3500);
-  };
-
-  const handleTestGroq = async () => {
-    if (!groqKey.trim()) {
-      setGroqTestStatus({ state: 'invalid', message: 'Vui lòng nhập Groq API Key trước khi kiểm tra.' });
-      return;
-    }
-
-    setGroqTestStatus({ state: 'testing', message: 'Đang gửi ping kiểm tra đến Groq Cloud API...' });
-    try {
-      const response = await fetch('https://api.groq.com/openai/v1/models', {
-        headers: { Authorization: `Bearer ${groqKey.trim()}` },
-      });
-      if (response.ok) {
-        // Auto-save immediately upon successful verification
-        const trimmedKey = groqKey.trim();
-        window.localStorage.setItem('tamspeak_byok_groq', trimmedKey);
-        container.aiGateway.setPersonalKey?.('groq', trimmedKey);
-
-        setGroqTestStatus({
-          state: 'valid',
-          message: 'Valid API Key! Đã tự động kích hoạt và lưu vào Local Vault của bạn.',
-        });
-        setStatusMessage('Đã tự động lưu Groq API Key cá nhân vào Local Vault của bạn!');
-        setTimeout(() => setStatusMessage(null), 3500);
-      } else {
-        setGroqTestStatus({
-          state: 'invalid',
-          message: `Invalid Key (${response.status}): Key Groq không chính xác hoặc đã hết hạn.`,
-        });
-      }
-    } catch (err: any) {
-      setGroqTestStatus({
-        state: 'invalid',
-        message: `Lỗi kết nối: ${err?.message || 'Không thể ping đến Groq API.'}`,
-      });
-    }
-  };
-
-  const handleSaveGroq = () => {
-    if (!groqKey.trim()) return;
-    const trimmedKey = groqKey.trim();
-    window.localStorage.setItem('tamspeak_byok_groq', trimmedKey);
-    container.aiGateway.setPersonalKey?.('groq', trimmedKey);
-    setStatusMessage('Đã lưu Groq API Key cá nhân vào Local Vault của bạn!');
-    setTimeout(() => setStatusMessage(null), 3500);
-  };
-
-  const handleClearGroq = () => {
-    window.localStorage.removeItem('tamspeak_byok_groq');
-    container.aiGateway.setPersonalKey?.('groq', null);
-    setGroqKey('');
-    setGroqTestStatus({ state: 'idle' });
-    setStatusMessage('Đã xóa Groq Key cá nhân. Hệ thống quay về hạn mức mặc định.');
     setTimeout(() => setStatusMessage(null), 3500);
   };
 
@@ -210,16 +180,27 @@ export const SettingsView: React.FC = () => {
   return (
     <div className="flex-1 p-6 md:p-8 overflow-y-auto bg-slate-50 select-none">
       <div className="max-w-3xl mx-auto space-y-6">
-        <div>
-          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>AI & Voice Configuration</span>
-            <span className="text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
-              BYOK & Smart TTS
-            </span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Cấu hình API Key cá nhân (Bring Your Own Key) và tinh chỉnh giọng đọc đa ngữ điệu.
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <span>Cài Đặt Hệ Thống & Giọng Nói</span>
+              <span className="text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
+                Google Gemini Native
+              </span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Quản lý API Key cá nhân, tinh chỉnh giọng đọc phản xạ và chế độ học tập.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveAllSettings}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+          >
+            <Save className="w-4 h-4" />
+            <span>Lưu Toàn Bộ Cài Đặt</span>
+          </button>
         </div>
 
         {statusMessage && (
@@ -230,7 +211,7 @@ export const SettingsView: React.FC = () => {
         )}
 
         {/* ======================================================== */}
-        {/* 1. PERSONAL API KEY CONFIGURATION (BYOK) - TOP PRIORITY  */}
+        {/* 1. PERSONAL API KEY CONFIGURATION (BYOK) - GOOGLE GEMINI */}
         {/* ======================================================== */}
         <div className="p-6 rounded-3xl border-2 border-teal-200/90 bg-white shadow-md space-y-5">
           <div className="flex items-start justify-between border-b border-slate-100 pb-3">
@@ -240,25 +221,24 @@ export const SettingsView: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <span>Personal API Key Configuration (BYOK)</span>
+                  <span>Google Gemini API Key (Bring Your Own Key)</span>
                   <span className="text-[10px] bg-amber-100 text-amber-800 font-extrabold px-2 py-0.5 rounded-full">
                     Khuyên Dùng
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Nhập API Key cá nhân của bạn để sử dụng không giới hạn mà không phụ thuộc vào hạn mức (Quota) chung của hệ thống.
+                  Hệ thống kết nối trực tiếp đến Google Generative Language API qua Header X-goog-api-key (Hỗ trợ mọi định dạng Key).
                 </p>
               </div>
             </div>
           </div>
 
-          {/* A. Google Gemini API Key */}
-          <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+          <div className="space-y-3 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-teal-600" />
                 <label className="text-xs font-bold text-slate-800">
-                  Google Gemini API Key <span className="text-[10px] text-teal-600 font-semibold">(Gemini 2.5 Flash • Khuyên Dùng)</span>
+                  Gemini API Key cá nhân
                 </label>
               </div>
               <a
@@ -279,19 +259,9 @@ export const SettingsView: React.FC = () => {
                   const val = e.target.value;
                   setGeminiKey(val);
                   setGeminiTestStatus({ state: 'idle' });
-                  if (val.trim()) {
-                    window.localStorage.setItem('tamspeak_byok_gemini', val.trim());
-                    container.aiGateway.setPersonalKey?.('gemini', val.trim());
-                  }
                 }}
-                onBlur={() => {
-                  if (geminiKey.trim()) {
-                    window.localStorage.setItem('tamspeak_byok_gemini', geminiKey.trim());
-                    container.aiGateway.setPersonalKey?.('gemini', geminiKey.trim());
-                  }
-                }}
-                placeholder="AIzaSy..."
-                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                placeholder="Nhập API Key Gemini của bạn..."
+                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-white"
               />
               <button
                 type="button"
@@ -305,7 +275,7 @@ export const SettingsView: React.FC = () => {
             {/* Test Status Feedback */}
             {geminiTestStatus.state !== 'idle' && (
               <div
-                className={`text-[11px] font-semibold p-2 rounded-lg flex items-center gap-1.5 ${
+                className={`text-[11px] font-semibold p-2.5 rounded-xl flex items-center gap-1.5 ${
                   geminiTestStatus.state === 'valid'
                     ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                     : geminiTestStatus.state === 'invalid'
@@ -313,7 +283,7 @@ export const SettingsView: React.FC = () => {
                     : 'bg-teal-50 text-teal-800 border border-teal-200'
                 }`}
               >
-                {geminiTestStatus.state === 'testing' && <Zap className="w-3.5 h-3.5 animate-spin" />}
+                {geminiTestStatus.state === 'testing' && <Zap className="w-3.5 h-3.5 animate-spin text-amber-500" />}
                 <span>{geminiTestStatus.message}</span>
               </div>
             )}
@@ -326,16 +296,16 @@ export const SettingsView: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors shadow-2xs"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>Test & Verify Key</span>
+                <span>Kiểm tra & Xác thực Key</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleSaveGemini}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors shadow-2xs"
+                onClick={handleSaveAllSettings}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors shadow-2xs"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>Save to Local Vault</span>
+                <span>Lưu vào Local Vault</span>
               </button>
 
               {geminiKey && (
@@ -350,109 +320,80 @@ export const SettingsView: React.FC = () => {
               )}
             </div>
           </div>
+        </div>
 
-          {/* B. Groq API Key */}
-          <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-purple-600" />
-                <label className="text-xs font-bold text-slate-800">
-                  Groq Cloud API Key <span className="text-[10px] text-purple-600 font-semibold">(Llama 3.3 70B • Tốc độ siêu tốc & Fallback)</span>
-                </label>
+        {/* ======================================================== */}
+        {/* 2. PRACTICE CONFIGURATION (MODE, CEFR, FEEDBACK LANGUAGE) */}
+        {/* ======================================================== */}
+        <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                <Sliders className="w-5 h-5" />
               </div>
-              <a
-                href="https://console.groq.com/keys"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-purple-700 font-bold hover:underline"
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Chế Độ Luyện Tập & Trình Độ</h3>
+                <p className="text-[11px] text-slate-500">
+                  Cấu hình phương pháp luyện thi và mục tiêu CEFR.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Practice Mode */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Chế độ luyện thi
+              </label>
+              <select
+                value={practiceMode}
+                onChange={(e) => setPracticeMode(e.target.value as any)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-teal-500"
               >
-                Lấy Key tại Groq Console ↗
-              </a>
+                <option value="mock_test">Thi thử nghiêm ngặt (Mock Test)</option>
+                <option value="coaching">Kèm cặp & Sửa lỗi chi tiết (Coaching)</option>
+                <option value="free_roleplay">Trò chuyện tự do (Free Roleplay)</option>
+              </select>
             </div>
 
-            <div className="relative">
-              <input
-                type={showGroqKey ? 'text' : 'password'}
-                value={groqKey}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setGroqKey(val);
-                  setGroqTestStatus({ state: 'idle' });
-                  if (val.trim()) {
-                    window.localStorage.setItem('tamspeak_byok_groq', val.trim());
-                    container.aiGateway.setPersonalKey?.('groq', val.trim());
-                  }
-                }}
-                onBlur={() => {
-                  if (groqKey.trim()) {
-                    window.localStorage.setItem('tamspeak_byok_groq', groqKey.trim());
-                    container.aiGateway.setPersonalKey?.('groq', groqKey.trim());
-                  }
-                }}
-                placeholder="gsk_..."
-                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-              />
-              <button
-                type="button"
-                onClick={() => setShowGroqKey(!showGroqKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            {/* Target Level */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Trình độ CEFR
+              </label>
+              <select
+                value={targetLevel}
+                onChange={(e) => setTargetLevel(e.target.value as any)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-teal-500"
               >
-                {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
+                <option value="a2">A2 (Elementary)</option>
+                <option value="b1">B1 (Intermediate)</option>
+                <option value="b2">B2 (Upper-Intermediate)</option>
+                <option value="c1">C1 (Advanced)</option>
+                <option value="c2">C2 (Proficient / Mastery)</option>
+              </select>
             </div>
 
-            {/* Test Status Feedback */}
-            {groqTestStatus.state !== 'idle' && (
-              <div
-                className={`text-[11px] font-semibold p-2 rounded-lg flex items-center gap-1.5 ${
-                  groqTestStatus.state === 'valid'
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                    : groqTestStatus.state === 'invalid'
-                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                    : 'bg-purple-50 text-purple-800 border border-purple-200'
-                }`}
+            {/* Feedback Language */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Ngôn ngữ giải thích
+              </label>
+              <select
+                value={feedbackLanguage}
+                onChange={(e) => setFeedbackLanguage(e.target.value as any)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-teal-500"
               >
-                {groqTestStatus.state === 'testing' && <Zap className="w-3.5 h-3.5 animate-spin" />}
-                <span>{groqTestStatus.message}</span>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleTestGroq}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors shadow-2xs"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>Test & Verify Key</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSaveGroq}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-colors shadow-2xs"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Save to Local Vault</span>
-              </button>
-
-              {groqKey && (
-                <button
-                  type="button"
-                  onClick={handleClearGroq}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors ml-auto"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Xóa Key</span>
-                </button>
-              )}
+                <option value="en_vn">Song ngữ Anh - Việt (Khuyên Dùng)</option>
+                <option value="en_en">100% Tiếng Anh (Full Immersion)</option>
+              </select>
             </div>
           </div>
         </div>
 
         {/* ======================================================== */}
-        {/* 2. MULTI-VOICE & ACCENT SYNTHESIS WITH SMART MAPPER      */}
+        {/* 3. MULTI-VOICE & ACCENT SYNTHESIS WITH SMART MAPPER      */}
         {/* ======================================================== */}
         <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -461,9 +402,9 @@ export const SettingsView: React.FC = () => {
                 <Volume2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Multi-Voice & Accent Synthesis</h3>
+                <h3 className="text-sm font-bold text-slate-900">Giọng Đọc Phản Xạ (Multi-Voice Synthesis)</h3>
                 <p className="text-[11px] text-slate-500">
-                  Tự động ánh xạ thông minh (Smart Voice Mapper) sang giọng đọc thực tế trên hệ điều hành của bạn.
+                  Tự động ánh xạ thông minh (Smart Voice Mapper) sang giọng đọc chuẩn trên hệ điều hành.
                 </p>
               </div>
             </div>
@@ -518,7 +459,7 @@ export const SettingsView: React.FC = () => {
 
                     {/* Mapped System Voice Tag */}
                     <div className="mt-2.5 p-2 rounded-xl bg-white border border-slate-200 text-[10px]">
-                      <span className="font-bold text-slate-500 block mb-0.5">Mapped to System Voice:</span>
+                      <span className="font-bold text-slate-500 block mb-0.5">Ánh xạ giọng OS:</span>
                       <span className="font-semibold text-teal-800 truncate block">
                         {personaConfig.mappedVoiceName}
                       </span>
@@ -527,7 +468,7 @@ export const SettingsView: React.FC = () => {
                     {/* Manual OS Voice Dropdown Override */}
                     <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                       <label className="text-[10px] font-bold text-slate-500 block mb-1">
-                        Override with OS Voice:
+                        Ghi đè bằng giọng OS:
                       </label>
                       <select
                         value={personaConfig.mappedVoiceName}
@@ -553,7 +494,7 @@ export const SettingsView: React.FC = () => {
                     className="w-full py-2 px-3 rounded-xl bg-white border border-teal-200 hover:bg-teal-100/50 text-teal-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
                   >
                     <Volume2 className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Preview Voice</span>
+                    <span>Nghe Thử Giọng</span>
                   </button>
                 </div>
               );
@@ -562,7 +503,7 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* ======================================================== */}
-        {/* 3. ACTIVE PROVIDER STRATEGY                             */}
+        {/* 4. GEMINI FAILOVER CHAIN MONITOR                         */}
         {/* ======================================================== */}
         <div className="p-5 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-3">
           <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
@@ -570,30 +511,36 @@ export const SettingsView: React.FC = () => {
               <Cpu className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Active AI Provider Strategy</h3>
+              <h3 className="text-sm font-bold text-slate-900">Chuỗi Dự Phòng Tự Động (Gemini Failover Chain)</h3>
               <p className="text-[11px] text-slate-500">
-                Resilient Gateway ưu tiên Key cá nhân của bạn, sau đó tự động fallback khi gặp sự cố mạng hoặc quota.
+                Hệ thống tự động xoay tua model Gemini tiếp theo khi gặp HTTP 429 (Rate Limit), 503 hoặc 404.
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {(['gemini', 'groq', 'openrouter'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setActiveAIProvider(p)}
-                className={`py-2 px-3 rounded-xl border text-xs font-bold capitalize transition-all ${
-                  activeAIProvider === p
-                    ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {GEMINI_MODELS_FALLBACK_CHAIN.map((model) => {
+              const isSelected = activeAIProvider === model;
+              return (
+                <button
+                  key={model}
+                  type="button"
+                  onClick={() => setActiveAIProvider(model)}
+                  className={`py-2 px-3 rounded-xl border text-xs font-mono font-medium transition-all ${
+                    isSelected
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-xs font-bold'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {model}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
     </div>
   );
 };
+
+// Export alias for backwards compatibility
+export { SettingsView as VoiceSettingsView };

@@ -41,6 +41,7 @@ export interface DialogueTurn {
     ipa: string;
     suggestedAlternative: string;
   }>;
+  suggestedUpgrade?: string;
   isRevealed?: boolean;
 }
 

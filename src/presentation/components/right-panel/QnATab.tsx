@@ -364,7 +364,7 @@ export const QnATab: React.FC = () => {
                             Native Phrasing Upgrade:
                           </span>
                           <p className="text-emerald-800 bg-emerald-50/70 p-1.5 rounded-lg border border-emerald-200 font-medium">
-                            "From my personal perspective, I have always found this particularly intriguing..."
+                            "{turn.suggestedUpgrade || 'From my personal viewpoint, this has consistently played an instrumental role.'}"
                           </p>
                         </div>
                       </div>

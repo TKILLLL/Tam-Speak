@@ -16,7 +16,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
   }): Promise<string> {
     const { systemPrompt, messages, apiKey, temperature = 0.7, jsonMode = false } = params;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent`;
 
     // Convert messages to Gemini multi-turn contents format
     // Multi-turn Gemini requirement: First turn must be 'user', roles must alternate
@@ -61,6 +61,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey,
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,

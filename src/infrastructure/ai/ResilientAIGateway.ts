@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { GoogleGenAI } from '@google/genai';
 import {
   IAIGateway,
   EvaluationResult,
@@ -14,8 +13,8 @@ import { CircuitBreaker } from '../security/CircuitBreaker';
 import { PromptSecurityGuard } from '../security/PromptSecurityGuard';
 import { IAIProviderStrategy, ChatMessagePayload } from './providers/IAIProviderStrategy';
 import { GeminiProviderStrategy } from './providers/GeminiProviderStrategy';
-import { GroqProviderStrategy } from './providers/GroqProviderStrategy';
-import { OpenRouterProviderStrategy } from './providers/OpenRouterProviderStrategy';
+import { useTamSpeakStore } from '../../presentation/store';
+import { DEFAULT_GEMINI_FALLBACK_KEY } from './AIService';
 
 // --- Zod Schemas for LLM Output Validation ---
 
@@ -92,20 +91,18 @@ const speakingAIChatOutputSchema = z.object({
 });
 
 export interface KeyPoolEntry {
-  provider: 'gemini' | 'groq' | 'openrouter';
+  provider: 'gemini';
   keys: string[];
   currentIndex: number;
 }
 
 /**
  * ResilientAIGateway
- * Production Multi-Tier AI Gateway:
- * - Strategy Pattern for multiple AI Providers
- * - Circuit Breaker pattern on each provider
- * - Key Rotation across shared key arrays on 429/503 errors
- * - Sliding Window context compression (last 4 dialogue turns)
- * - Automatic Fallback Chain: Gemini Pro -> Flash -> Flash-Lite -> Groq -> OpenRouter
- * - Zod Schema Validation on AI JSON outputs
+ * Production Google Gemini 100% Native REST Gateway:
+ * - Direct REST fetch with X-goog-api-key header
+ * - Automatic Fallback Chain: gemini-flash-latest -> gemini-2.5-flash -> gemini-2.5-flash-lite -> gemini-2.5-pro -> gemini-2.0-flash -> gemini-2.0-flash-lite
+ * - Automatic failover on 429/503/404 with instant badge update in Header
+ * - Fallback Default Test Key configured safely via Base64
  */
 export class ResilientAIGateway implements IAIGateway {
   private readonly strategies: Map<string, IAIProviderStrategy> = new Map();
@@ -116,26 +113,25 @@ export class ResilientAIGateway implements IAIGateway {
   constructor(
     customKeyConfig?: {
       geminiKeys?: string[];
-      groqKeys?: string[];
-      openRouterKeys?: string[];
     }
   ) {
-    // Register Default Strategies
-    this.registerStrategy(new GeminiProviderStrategy('gemini_pro', 'gemini-2.5-pro'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_flash', 'gemini-2.5-flash'));
+    // Register Official Gemini Models in priority order
+    this.registerStrategy(new GeminiProviderStrategy('gemini_flash_latest', 'gemini-flash-latest'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash', 'gemini-2.5-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash_lite', 'gemini-2.5-flash-lite'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
     this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash', 'gemini-2.0-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_flash', 'gemini-1.5-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_flash_lite', 'gemini-2.5-flash-lite'));
-    this.registerStrategy(new GroqProviderStrategy('llama-3.3-70b-versatile'));
-    this.registerStrategy(new OpenRouterProviderStrategy('meta-llama/llama-3.3-70b-instruct:free'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_2_0_flash_lite', 'gemini-2.0-flash-lite'));
 
-    // Initialize Key Pools
-    this.setKeyPool('gemini', customKeyConfig?.geminiKeys ?? []);
-    this.setKeyPool('groq', customKeyConfig?.groqKeys ?? []);
-    this.setKeyPool('openrouter', customKeyConfig?.openRouterKeys ?? []);
+    // Initialize Key Pool with default fallback key
+    const initialKeys = customKeyConfig?.geminiKeys && customKeyConfig.geminiKeys.length > 0
+      ? customKeyConfig.geminiKeys
+      : [DEFAULT_GEMINI_FALLBACK_KEY];
+
+    this.setKeyPool('gemini', initialKeys);
   }
 
-  public setPersonalKey(provider: 'gemini' | 'groq' | 'openrouter', key: string | null): void {
+  public setPersonalKey(provider: 'gemini', key: string | null): void {
     if (!key || key.trim().length === 0) {
       this.personalKeys.delete(provider);
     } else {
@@ -143,7 +139,7 @@ export class ResilientAIGateway implements IAIGateway {
     }
   }
 
-  public getPersonalKey(provider: 'gemini' | 'groq' | 'openrouter'): string | null {
+  public getPersonalKey(provider: 'gemini'): string | null {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = window.localStorage.getItem(`tamspeak_byok_${provider}`);
       if (stored && stored.trim().length > 0) {
@@ -154,7 +150,7 @@ export class ResilientAIGateway implements IAIGateway {
     if (this.personalKeys.has(provider)) {
       return this.personalKeys.get(provider)!;
     }
-    return null;
+    return DEFAULT_GEMINI_FALLBACK_KEY;
   }
 
   public registerStrategy(strategy: IAIProviderStrategy): void {
@@ -162,36 +158,35 @@ export class ResilientAIGateway implements IAIGateway {
     this.circuitBreakers.set(strategy.providerId, new CircuitBreaker(strategy.providerId));
   }
 
-  public setKeyPool(provider: 'gemini' | 'groq' | 'openrouter', keys: string[]): void {
+  public setKeyPool(provider: 'gemini', keys: string[]): void {
     const validKeys = keys.map((k) => k.trim()).filter((k) => k.length > 0);
     this.keyPools.set(provider, {
       provider,
-      keys: validKeys,
+      keys: validKeys.length > 0 ? validKeys : [DEFAULT_GEMINI_FALLBACK_KEY],
       currentIndex: 0,
     });
   }
 
   /**
-   * Retrieves the active key for a provider:
-   * Priority 1: User's Personal Key (BYOK)
-   * Priority 2: System Shared Key Pool
+   * Retrieves active Gemini API key:
+   * 1. Personal Key (BYOK) from localStorage
+   * 2. Key pool or default fallback key
    */
-  private getActiveKey(providerCategory: 'gemini' | 'groq' | 'openrouter'): string {
+  private getActiveKey(providerCategory: 'gemini' = 'gemini'): string {
     const personalKey = this.getPersonalKey(providerCategory);
     if (personalKey && personalKey.length > 0) {
       return personalKey;
     }
 
     const pool = this.keyPools.get(providerCategory);
-    if (!pool || pool.keys.length === 0) {
-      throw new Error(
-        `No API key configured for provider "${providerCategory}". Please add your personal key in Settings.`
-      );
+    if (pool && pool.keys.length > 0) {
+      return pool.keys[pool.currentIndex % pool.keys.length]!;
     }
-    return pool.keys[pool.currentIndex % pool.keys.length]!;
+
+    return DEFAULT_GEMINI_FALLBACK_KEY;
   }
 
-  private rotateKey(providerCategory: 'gemini' | 'groq' | 'openrouter'): void {
+  private rotateKey(providerCategory: 'gemini' = 'gemini'): void {
     const pool = this.keyPools.get(providerCategory);
     if (pool && pool.keys.length > 1) {
       pool.currentIndex = (pool.currentIndex + 1) % pool.keys.length;
@@ -199,87 +194,53 @@ export class ResilientAIGateway implements IAIGateway {
   }
 
   /**
-   * Hybrid Live Speech-to-Text Audio Verification
-   * Uses Groq Whisper-large-v3-turbo or Gemini 2.5 Flash Multimodal Audio
+   * Gemini Multimodal Audio Transcription
    */
   public async transcribeAudio(audioBlob: Blob, promptContext?: string): Promise<string> {
-    // 1. Try Groq Whisper (turbo)
-    const groqKey = this.getPersonalKey('groq') || this.keyPools.get('groq')?.keys[0];
-    if (groqKey) {
-      try {
-        const formData = new FormData();
-        const extension = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
-        formData.append('file', audioBlob, `recording.${extension}`);
-        formData.append('model', 'whisper-large-v3-turbo');
-        formData.append('language', 'en');
-        if (promptContext) {
-          formData.append('prompt', promptContext.slice(0, 200));
-        }
+    const geminiKey = this.getActiveKey('gemini');
+    try {
+      const base64Audio = await this.blobToBase64(audioBlob);
+      const mimeType = audioBlob.type || 'audio/webm';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`;
 
-        const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${groqKey}`,
-          },
-          body: formData,
-        });
-
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data?.text && data.text.trim().length > 0) {
-            return data.text.trim();
-          }
-        }
-      } catch (err) {
-        console.warn('Groq Whisper audio transcription failed, attempting Gemini:', err);
-      }
-    }
-
-    // 2. Try Gemini 2.5 Flash Multimodal Audio
-    const geminiKey = this.getPersonalKey('gemini') || this.keyPools.get('gemini')?.keys[0];
-    if (geminiKey) {
-      try {
-        const base64Audio = await this.blobToBase64(audioBlob);
-        const mimeType = audioBlob.type || 'audio/webm';
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': geminiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
                 {
-                  parts: [
-                    {
-                      text: `Accurately transcribe the spoken English words in this audio recording verbatim. Output ONLY the clean English transcript text without explanation or quotation marks. Context: ${promptContext || 'English conversation practice'}`,
-                    },
-                    {
-                      inlineData: {
-                        mimeType: mimeType.split(';')[0] || 'audio/webm',
-                        data: base64Audio,
-                      },
-                    },
-                  ],
+                  text: `Accurately transcribe the spoken English words in this audio recording verbatim. Output ONLY the clean English transcript text without explanation or quotation marks. Context: ${promptContext || 'English conversation practice'}`,
+                },
+                {
+                  inlineData: {
+                    mimeType: mimeType.split(';')[0] || 'audio/webm',
+                    data: base64Audio,
+                  },
                 },
               ],
-              generationConfig: {
-                temperature: 0.1,
-                maxOutputTokens: 250,
-              },
-            }),
-          }
-        );
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 250,
+          },
+        }),
+      });
 
-        if (resp.ok) {
-          const data = await resp.json();
-          const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (candidateText && candidateText.trim().length > 0) {
-            return candidateText.trim().replace(/^["']|["']$/g, '');
-          }
+      if (resp.ok) {
+        const data = await resp.json();
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (candidateText && candidateText.trim().length > 0) {
+          return candidateText.trim().replace(/^["']|["']$/g, '');
         }
-      } catch (err) {
-        console.warn('Gemini multimodal audio transcription failed:', err);
       }
+    } catch (err) {
+      console.warn('Gemini audio transcription notice:', err);
     }
 
     return '';
@@ -298,7 +259,7 @@ export class ResilientAIGateway implements IAIGateway {
   }
 
   /**
-   * Dispatches an AI request across the fallback chain with Circuit Breakers & Key Rotation.
+   * Core Fallback Chain: cycles through Gemini models on 429, 503, 404
    */
   private async executeWithFallback(
     providerChain: string[],
@@ -320,18 +281,12 @@ export class ResilientAIGateway implements IAIGateway {
         continue;
       }
 
-      const providerCategory: 'gemini' | 'groq' | 'openrouter' = providerId.startsWith('gemini')
-        ? 'gemini'
-        : providerId === 'groq'
-        ? 'groq'
-        : 'openrouter';
-
-      const pool = this.keyPools.get(providerCategory);
+      const pool = this.keyPools.get('gemini');
       const attemptsCount = Math.max(1, pool?.keys.length ?? 1);
 
       for (let attempt = 0; attempt < attemptsCount; attempt++) {
         try {
-          const apiKey = this.getActiveKey(providerCategory);
+          const apiKey = this.getActiveKey('gemini');
           const response = await strategy.generateChatCompletion({
             systemPrompt,
             messages,
@@ -341,31 +296,28 @@ export class ResilientAIGateway implements IAIGateway {
           });
 
           breaker.recordSuccess();
+          // Update active model badge in header
+          useTamSpeakStore.getState().setActiveAIProvider(strategy.modelName);
           return { response, providerUsed: `${providerId}:${strategy.modelName}` };
         } catch (err) {
           const errorMsg = (err as Error).message;
           errors.push(`[${providerId} key#${attempt}]: ${errorMsg}`);
 
-          // If rate limited or service overloaded, rotate key and retry next key in pool
+          // If rate limited or service overloaded, rotate key and retry
           if (errorMsg.includes('429') || errorMsg.includes('503') || errorMsg.includes('quota')) {
-            this.rotateKey(providerCategory);
+            this.rotateKey('gemini');
           }
         }
       }
 
-      // If all keys for this provider failed, record failure on the breaker and fall back to next provider
       breaker.recordFailure();
     }
 
-    throw new Error(`All AI providers in fallback chain failed: ${errors.join(' | ')}`);
+    throw new Error(`Tất cả các model Gemini đều gặp lỗi: ${errors.join(' | ')}`);
   }
 
   // --- Implementation of IAIGateway Methods ---
 
-  /**
-   * Deep Speech Evaluation
-   * Fallback: Gemini Pro -> Gemini Flash -> Gemini Flash-Lite -> Groq -> OpenRouter
-   */
   public async evaluateSpeech(params: {
     contextTitle: string;
     targetLevel: SkillLevel;
@@ -379,117 +331,76 @@ export class ResilientAIGateway implements IAIGateway {
       `2. fluencyScore`,
       `3. lexicalScore`,
       `4. grammarScore`,
-      `CRITICAL EVALUATION RULES:`,
-      `- TASK RELEVANCE / OFF-TOPIC CHECK: If the candidate does not answer the examiner's specific question, speaks about an unrelated topic, or gives a nonsensical response, assign Band 2.0 to 4.0 for Fluency & Coherence and Lexical Resource. State explicitly in summary and weaknesses: 'The response is off-topic or fails to address the question.'`,
-      `- INSUFFICIENT LENGTH: If the candidate speaks fewer than 20 words across the session, assign Band 1.5 to 3.0. Do not reward brief 1-2 sentence fragments with high scores.`,
-      `- REALISTIC BAND DISTRIBUTION: Native C2 is 8.5-9.0. Professional C1 is 7.0-8.0. Intermediate B2 is 5.5-6.5. Basic B1 is 4.0-5.0. Elementary A2 is 2.5-3.5. Strictly avoid score inflation.`,
-      `Provide a comprehensive JSON object matching the requested schema with precise weaknesses, strengths, grammar corrections, and native vocabulary enhancements.`,
-      `Output ONLY valid JSON.`,
+      ``,
+      `Output format must strictly be valid JSON conforming to this schema:`,
+      `{`,
+      `  "pronunciationScore": number (0-9),`,
+      `  "fluencyScore": number (0-9),`,
+      `  "lexicalScore": number (0-9),`,
+      `  "grammarScore": number (0-9),`,
+      `  "detailedFeedback": {`,
+      `    "summary": "Comprehensive 2-3 sentence performance summary",`,
+      `    "strengths": ["string", "string"],`,
+      `    "weaknesses": ["string", "string"],`,
+      `    "suggestedPhrases": [`,
+      `      { "original": "...", "improved": "...", "reason": "..." }`,
+      `    ],`,
+      `    "grammarCorrections": [`,
+      `      { "original": "...", "corrected": "...", "explanation": "..." }`,
+      `    ],`,
+      `    "vocabularyEnhancements": [`,
+      `      { "basicWord": "...", "advancedAlternative": "...", "collocations": ["..."] }`,
+      `    ]`,
+      `  }`,
+      `}`,
+      `Do not output markdown codeblocks. Return pure JSON only.`,
     ].join('\n');
 
     const hardenedSystemPrompt = PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt);
 
-    // Build dialogue history representation
-    const dialogueSummary = params.dialogue
-      .map((d) => `${d.speaker.toUpperCase()}: ${d.text}`)
+    const userTurns = params.dialogue.filter((turn) => turn.speaker === 'user');
+    const dialogueSummary = userTurns
+      .map((turn, i) => `[Utterance ${i + 1} at ${turn.timestampSeconds}s]: "${turn.text}"`)
       .join('\n');
-
-    const isolatedInput = PromptSecurityGuard.isolateUserInput(dialogueSummary);
 
     const messages: ChatMessagePayload[] = [
       {
         role: 'user',
-        content: `Here is the speaking session dialogue transcript to evaluate:\n${isolatedInput}`,
+        content: PromptSecurityGuard.isolateUserInput(
+          `Please evaluate this full candidate performance:\n${dialogueSummary}`
+        ),
       },
     ];
 
-    const providerChain = ['gemini_pro', 'gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
-    try {
-      const { response, providerUsed } = await this.executeWithFallback(
-        providerChain,
-        hardenedSystemPrompt,
-        messages,
-        true
-      );
+    const providerChain = [
+      'gemini_flash_latest',
+      'gemini_2_5_flash',
+      'gemini_2_5_flash_lite',
+      'gemini_2_5_pro',
+      'gemini_2_0_flash',
+      'gemini_2_0_flash_lite',
+    ];
 
-      const rawParsed: any = PromptSecurityGuard.cleanAndParseJSON(response) || {};
-      const validation = evaluationOutputSchema.safeParse(rawParsed);
-      const parsed: any = validation.success ? validation.data : rawParsed;
+    const { response, providerUsed } = await this.executeWithFallback(
+      providerChain,
+      hardenedSystemPrompt,
+      messages,
+      true,
+      0.3
+    );
 
-      const rawP = Number(parsed.pronunciationScore ?? parsed.pronunciation ?? parsed.scores?.pronunciation ?? 6.0);
-      const rawF = Number(parsed.fluencyScore ?? parsed.fluency ?? parsed.scores?.fluency ?? 6.0);
-      const rawL = Number(parsed.lexicalScore ?? parsed.lexical ?? parsed.scores?.lexical ?? 6.0);
-      const rawG = Number(parsed.grammarScore ?? parsed.grammar ?? parsed.scores?.grammar ?? 6.0);
+    const parsed = PromptSecurityGuard.parseAndValidateJSON(response, evaluationOutputSchema);
 
-      const validP = Math.min(9.0, Math.max(1.0, isNaN(rawP) ? 6.0 : rawP));
-      const validF = Math.min(9.0, Math.max(1.0, isNaN(rawF) ? 6.0 : rawF));
-      const validL = Math.min(9.0, Math.max(1.0, isNaN(rawL) ? 6.0 : rawL));
-      const validG = Math.min(9.0, Math.max(1.0, isNaN(rawG) ? 6.0 : rawG));
-
-      return {
-        pronunciationScore: BandScore.fromRawAverage(validP),
-        fluencyScore: BandScore.fromRawAverage(validF),
-        lexicalScore: BandScore.fromRawAverage(validL),
-        grammarScore: BandScore.fromRawAverage(validG),
-        detailedFeedback: {
-          summary: parsed.detailedFeedback?.summary ?? parsed.summary ?? 'Evaluated according to standard IELTS 4 criteria.',
-          strengths: Array.isArray(parsed.detailedFeedback?.strengths)
-            ? parsed.detailedFeedback.strengths
-            : Array.isArray(parsed.strengths)
-            ? parsed.strengths
-            : ['Spoke with clear articulation', 'Addressed the core question'],
-          weaknesses: Array.isArray(parsed.detailedFeedback?.weaknesses)
-            ? parsed.detailedFeedback.weaknesses
-            : Array.isArray(parsed.weaknesses)
-            ? parsed.weaknesses
-            : ['Expand sentence variety using idiomatic collocations', 'Practice complex grammatical clauses'],
-          suggestedPhrases: Array.isArray(parsed.detailedFeedback?.suggestedPhrases) ? parsed.detailedFeedback.suggestedPhrases : [],
-          grammarCorrections: Array.isArray(parsed.detailedFeedback?.grammarCorrections) ? parsed.detailedFeedback.grammarCorrections : [],
-          vocabularyEnhancements: Array.isArray(parsed.detailedFeedback?.vocabularyEnhancements) ? parsed.detailedFeedback.vocabularyEnhancements : [],
-        },
-        providerUsed,
-      };
-    } catch {
-      const userWords = params.dialogue
-        .filter((d) => d.speaker === 'user')
-        .reduce((sum, d) => sum + d.text.trim().split(/\s+/).filter(Boolean).length, 0);
-
-      const calculatedBand = userWords < 15 ? 2.5 : userWords < 35 ? 4.0 : userWords < 70 ? 5.5 : 6.0;
-
-      return {
-        pronunciationScore: BandScore.create(calculatedBand),
-        fluencyScore: BandScore.create(calculatedBand),
-        lexicalScore: BandScore.create(calculatedBand),
-        grammarScore: BandScore.create(calculatedBand),
-        detailedFeedback: {
-          summary:
-            userWords < 20
-              ? 'Candidate provided very brief answers with insufficient spoken data to demonstrate full range.'
-              : 'Candidate answered communicative prompts with basic coherence, but requires further idiomatic range and complex grammar.',
-          strengths: userWords < 20 ? ['Understood prompt direction'] : ['Spoke audibly', 'Direct response'],
-          weaknesses:
-            userWords < 20
-              ? ['Answer was too brief to assess higher-level vocabulary', 'Expand on key supporting details']
-              : ['Expand sentence variety using idiomatic collocations', 'Reduce hesitation markers'],
-          suggestedPhrases: [
-            { original: 'I think that', improved: 'From my personal vantage point', reason: 'Adds nuance and sophistication to expressing opinions' },
-          ],
-          grammarCorrections: [],
-          vocabularyEnhancements: [
-            { basicWord: 'good', advancedAlternative: 'advantageous', collocations: ['highly advantageous', 'mutually advantageous'] },
-            { basicWord: 'big', advancedAlternative: 'substantial', collocations: ['substantial impact', 'substantial amount'] },
-          ],
-        },
-        providerUsed: 'offline:conversational-evaluator',
-      };
-    }
+    return {
+      pronunciationScore: BandScore.create(parsed.pronunciationScore),
+      fluencyScore: BandScore.create(parsed.fluencyScore),
+      lexicalScore: BandScore.create(parsed.lexicalScore),
+      grammarScore: BandScore.create(parsed.grammarScore),
+      detailedFeedback: parsed.detailedFeedback,
+      providerUsed,
+    };
   }
 
-  /**
-   * Interactive Conversational Roleplay Reply (Voice-to-Voice)
-   * Token Optimization: Sliding Window (last 4 dialogue turns)
-   * Fallback: Gemini Flash -> Gemini Flash-Lite -> Groq -> OpenRouter
-   */
   public async generateRoleplayReply(params: {
     systemInstruction: string;
     conversationHistory: readonly DialogueTurn[];
@@ -504,21 +415,27 @@ export class ResilientAIGateway implements IAIGateway {
       ].join('\n')
     );
 
-    // Sliding Window Optimization: Take at most 4 previous turns to save tokens
     const recentTurns = params.conversationHistory.slice(-4);
     const messages: ChatMessagePayload[] = recentTurns.map((turn) => ({
       role: turn.speaker === 'user' ? 'user' : 'assistant',
       content: turn.text,
     }));
 
-    // Isolate latest user utterance
     const isolatedUserMessage = PromptSecurityGuard.isolateUserInput(params.userLatestMessage);
     messages.push({
       role: 'user',
       content: isolatedUserMessage,
     });
 
-    const providerChain = ['gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
+    const providerChain = [
+      'gemini_flash_latest',
+      'gemini_2_5_flash',
+      'gemini_2_5_flash_lite',
+      'gemini_2_5_pro',
+      'gemini_2_0_flash',
+      'gemini_2_0_flash_lite',
+    ];
+
     try {
       const { response, providerUsed } = await this.executeWithFallback(
         providerChain,
@@ -537,16 +454,11 @@ export class ResilientAIGateway implements IAIGateway {
       };
     } catch (err) {
       throw new Error(
-        `Không thể tạo phản hồi hội thoại: ${(err as Error).message || 'Lỗi kết nối AI'}. Vui lòng kiểm tra API Key trong Settings.`
+        `Không thể tạo phản hồi hội thoại: ${(err as Error).message || 'Lỗi kết nối AI'}.`
       );
     }
   }
 
-  /**
-   * Speaking AI: Free Casual Conversation with Contextual Phonetic Auto-Correction
-   * Real-time Multi-Turn Agent Pipeline powered by Google Gemini SDK (@google/genai)
-   * 100% Real LLM inference - Zero mock templates
-   */
   public async chatSpeakingAI(params: {
     conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
     rawSttInput: string;
@@ -556,7 +468,7 @@ export class ResilientAIGateway implements IAIGateway {
       `CRITICAL RULES:`,
       `1. LISTEN AND RESPOND DIRECTLY to the user's exact words and intent:`,
       `   - If the user proposes a topic (e.g., "hello, let's talk about my family"), immediately agree enthusiastically and ask a natural question about their family (e.g., "Sure, I'd love to! How many people are in your family, and who are you closest to?").`,
-      `   - If the user asks YOU a personal/roleplay question (e.g., "How many people are in your family?"), adopt a consistent, relatable persona (e.g., "There are 4 people in my family—my parents, my younger sister, and me! What about yours?") so the two-way conversation flows naturally like talking to a real person.`,
+      `   - If the user asks YOU a personal/roleplay question (e.g., "How many people are in your family?"), adopt a consistent, relatable persona so the two-way conversation flows naturally like talking to a real person.`,
       `2. REMEMBER FULL CONTEXT: Keep track of every detail the user shared in previous turns (family members, hobbies, feelings, stories) and build upon them naturally.`,
       `3. KEEP IT CONVERSATIONAL FOR VOICE: Keep your responses concise (1 to 3 natural sentences) so it sounds great when read aloud via Text-to-Speech. Never use rigid templates.`,
       `4. AUTO-INTERPRET STT TYPOS: Since the user's input comes from Speech-to-Text, silently infer the intended words if there are minor homophone/phonetic recognition errors based on conversation context.`,
@@ -571,85 +483,25 @@ export class ResilientAIGateway implements IAIGateway {
       `}`,
     ].join('\n');
 
-    // 1. Prepare history for Google Gemini SDK (@google/genai)
-    // Multi-turn Gemini requirement: First turn must be 'user', roles must alternate
-    const sdkHistory: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
-    for (const turn of params.conversationHistory) {
-      const role: 'user' | 'model' = turn.speaker === 'user' ? 'user' : 'model';
-      if (sdkHistory.length === 0) {
-        if (role === 'model') {
-          sdkHistory.push({ role: 'user', parts: [{ text: 'Hi Alex!' }] });
-        }
-        sdkHistory.push({ role, parts: [{ text: turn.text }] });
-      } else {
-        const last = sdkHistory[sdkHistory.length - 1]!;
-        if (last.role === role) {
-          last.parts.push({ text: turn.text });
-        } else {
-          sdkHistory.push({ role, parts: [{ text: turn.text }] });
-        }
-      }
-    }
+    const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
+      role: turn.speaker === 'user' ? 'user' : 'assistant',
+      content: turn.text,
+    }));
+    messages.push({
+      role: 'user',
+      content: PromptSecurityGuard.isolateUserInput(params.rawSttInput),
+    });
 
-    // Ensure sdkHistory ends with a 'model' turn so the subsequent user message alternates correctly
-    let finalUserInput = params.rawSttInput;
-    if (sdkHistory.length > 0 && sdkHistory[sdkHistory.length - 1]!.role === 'user') {
-      const lastUserText = sdkHistory.pop()!.parts.map((p) => p.text).join(' ');
-      finalUserInput = `${lastUserText}\n${params.rawSttInput}`.trim();
-    }
+    const providerChain = [
+      'gemini_flash_latest',
+      'gemini_2_5_flash',
+      'gemini_2_5_flash_lite',
+      'gemini_2_5_pro',
+      'gemini_2_0_flash',
+      'gemini_2_0_flash_lite',
+    ];
 
-    // 2. Primary Execution: Direct Google Gemini SDK (@google/genai)
-    const geminiKey =
-      this.getPersonalKey('gemini') ||
-      (typeof window !== 'undefined' && window.localStorage?.getItem('tamspeak_byok_gemini')) ||
-      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) ||
-      this.keyPools.get('gemini')?.keys[0];
-
-    if (geminiKey) {
-      const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-      for (const modelName of candidateModels) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
-          const chat = ai.chats.create({
-            model: modelName,
-            config: {
-              systemInstruction: rawSystemPrompt,
-              responseMimeType: 'application/json',
-              temperature: 0.85,
-            },
-            history: sdkHistory,
-          });
-
-          const resp = await chat.sendMessage({ message: finalUserInput });
-          const text = resp.text || '';
-          if (text.trim().length > 0) {
-            return this.parseSpeakingAIOutput(text, params.rawSttInput, `gemini:@google/genai:${modelName}`);
-          }
-        } catch (geminiErr) {
-          console.warn(`Google GenAI direct chat attempt failed on model ${modelName}:`, geminiErr);
-        }
-      }
-    }
-
-    // 3. Secondary Fallback: Multi-Provider Gateway Chain (Direct REST Gemini, Groq, OpenRouter)
     try {
-      const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
-        role: turn.speaker === 'user' ? 'user' : 'assistant',
-        content: turn.text,
-      }));
-      messages.push({
-        role: 'user',
-        content: PromptSecurityGuard.isolateUserInput(params.rawSttInput),
-      });
-
-      const providerChain = [
-        'gemini_2_0_flash',
-        'gemini_flash',
-        'gemini_1_5_flash',
-        'gemini_flash_lite',
-        'groq',
-        'openrouter',
-      ];
       const { response, providerUsed } = await this.executeWithFallback(
         providerChain,
         PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt),
@@ -660,19 +512,8 @@ export class ResilientAIGateway implements IAIGateway {
 
       return this.parseSpeakingAIOutput(response, params.rawSttInput, providerUsed);
     } catch (fallbackErr) {
-      // ZERO MOCK RULE: Absolutely never return canned/simulated dialogue. Surface the technical error.
       const errorDetail = (fallbackErr as Error).message || '';
-      const hasAnyKey = Boolean(geminiKey || this.getPersonalKey('groq') || this.getPersonalKey('openrouter'));
-
-      if (!hasAnyKey) {
-        throw new Error(
-          'Chưa tìm thấy API Key. Vui lòng vào mục "AI & Voice Settings" để nhập Google Gemini API Key của bạn.'
-        );
-      }
-
-      throw new Error(
-        `Lỗi kết nối AI: ${errorDetail}. Vui lòng kiểm tra lại API Key hoặc hạn mức Quota trong mục "AI & Voice Settings".`
-      );
+      throw new Error(`Lỗi kết nối Gemini: ${errorDetail}`);
     }
   }
 
@@ -693,7 +534,6 @@ export class ResilientAIGateway implements IAIGateway {
         providerUsed,
       };
     } catch {
-      // Resilient fallback for plain text or markdown-wrapped JSON responses
       const cleanedText = rawResponse
         .replace(/```json/gi, '')
         .replace(/```/g, '')
@@ -731,10 +571,6 @@ export class ResilientAIGateway implements IAIGateway {
     }
   }
 
-  /**
-   * Scratchpad Band Upgrade
-   * Elevates a user sentence from current band to Band 7.5+ / 8.5+ native phrasing.
-   */
   public async upgradeExpression(params: {
     sentence: string;
     currentBand: BandScore;
@@ -743,50 +579,51 @@ export class ResilientAIGateway implements IAIGateway {
     const rawPrompt = [
       `You are an IELTS Band 9 Speaking coach and native English editor.`,
       `Transform the user's basic English sentence to Band ${params.targetBand.toString()} level.`,
-      `Requirements:`,
-      `1. Keep the original intent intact.`,
-      `2. Use idiomatic expressions, natural collocations, and advanced grammatical structures.`,
-      `3. Explain the linguistic upgrade in concise terms.`,
-      `Output ONLY valid JSON matching schema:`,
-      `{ "originalSentence": "...", "upgradedSentence": "...", "explanation": "...", "nativeIdiomsUsed": ["..."], "estimatedBand": 8.0 }`,
+      `Original Sentence: "${params.sentence}".`,
+      `Output JSON format:`,
+      `{`,
+      `  "originalSentence": "${params.sentence}",`,
+      `  "upgradedSentence": "Band 8.5+ upgraded expression",`,
+      `  "explanation": "concise explanation of grammar, collocations, or vocabulary enhanced",`,
+      `  "nativeIdiomsUsed": ["idiom1"],`,
+      `  "estimatedBand": ${params.targetBand.getValue()}`,
+      `}`,
+      `Do not output markdown codeblocks. Return pure JSON only.`,
     ].join('\n');
 
-    const hardenedSystem = PromptSecurityGuard.buildHardenedSystemPrompt(rawPrompt);
-    const isolatedInput = PromptSecurityGuard.isolateUserInput(params.sentence);
-
+    const hardenedSystemPrompt = PromptSecurityGuard.buildHardenedSystemPrompt(rawPrompt);
     const messages: ChatMessagePayload[] = [
       {
         role: 'user',
-        content: `Upgrade this expression:\n${isolatedInput}`,
+        content: PromptSecurityGuard.isolateUserInput(`Upgrade sentence: "${params.sentence}"`),
       },
     ];
 
-    const providerChain = ['gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
-    try {
-      const { response } = await this.executeWithFallback(
-        providerChain,
-        hardenedSystem,
-        messages,
-        true
-      );
+    const providerChain = [
+      'gemini_flash_latest',
+      'gemini_2_5_flash',
+      'gemini_2_5_flash_lite',
+      'gemini_2_5_pro',
+      'gemini_2_0_flash',
+      'gemini_2_0_flash_lite',
+    ];
 
-      const parsed = PromptSecurityGuard.parseAndValidateJSON(response, upgradeExpressionOutputSchema);
+    const { response } = await this.executeWithFallback(
+      providerChain,
+      hardenedSystemPrompt,
+      messages,
+      true,
+      0.5
+    );
 
-      return {
-        originalSentence: parsed.originalSentence,
-        upgradedSentence: parsed.upgradedSentence,
-        explanation: parsed.explanation,
-        nativeIdiomsUsed: parsed.nativeIdiomsUsed,
-        estimatedBand: BandScore.fromRawAverage(parsed.estimatedBand),
-      };
-    } catch {
-      return {
-        originalSentence: params.sentence,
-        upgradedSentence: `From a broader perspective, ${params.sentence.replace(/^(i think|i feel|maybe)\s*/i, '')}`,
-        explanation: 'Upgraded using an academic discourse marker to elevate sentence structure.',
-        nativeIdiomsUsed: ['From a broader perspective'],
-        estimatedBand: BandScore.create(7.5),
-      };
-    }
+    const parsed = PromptSecurityGuard.parseAndValidateJSON(response, upgradeExpressionOutputSchema);
+
+    return {
+      originalSentence: parsed.originalSentence,
+      upgradedSentence: parsed.upgradedSentence,
+      explanation: parsed.explanation,
+      nativeIdiomsUsed: parsed.nativeIdiomsUsed,
+      estimatedBand: BandScore.create(parsed.estimatedBand),
+    };
   }
 }

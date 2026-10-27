@@ -4,3 +4,4 @@ export * from './ProgressDashboardView';
 export * from './PronunciationLabView';
 export * from './ProfileView';
 export * from './SpeakingAIView';
+export * from './OnboardingWizardView';

@@ -70,19 +70,9 @@ export class DIContainer {
       (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) ||
       (typeof process !== 'undefined' && process.env?.VITE_GEMINI_API_KEY) ||
       '';
-    const defaultGroqKey =
-      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GROQ_API_KEY) ||
-      (typeof process !== 'undefined' && process.env?.VITE_GROQ_API_KEY) ||
-      '';
-    const defaultOpenRouterKey =
-      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENROUTER_API_KEY) ||
-      (typeof process !== 'undefined' && process.env?.VITE_OPENROUTER_API_KEY) ||
-      '';
 
     this.aiGateway = new ResilientAIGateway({
       geminiKeys: defaultGeminiKey ? [defaultGeminiKey] : [],
-      groqKeys: defaultGroqKey ? [defaultGroqKey] : [],
-      openRouterKeys: defaultOpenRouterKey ? [defaultOpenRouterKey] : [],
     });
     this.dictionaryGateway = new UnifiedDictionaryGateway();
     this.cryptoService = new WebCryptoVaultService();

@@ -40,6 +40,7 @@ export const Sidebar: React.FC = () => {
     toggleSidebar,
     user,
     setAuthModalOpen,
+    hasCompletedOnboarding,
   } = useTamSpeakStore();
 
   const isAdmin = user?.role === 'admin';
@@ -112,9 +113,16 @@ export const Sidebar: React.FC = () => {
           return (
             <button
               key={item.id}
-              onClick={() => setCurrentView(item.id)}
-              title={item.label}
+              disabled={!hasCompletedOnboarding}
+              onClick={() => {
+                if (hasCompletedOnboarding) {
+                  setCurrentView(item.id);
+                }
+              }}
+              title={!hasCompletedOnboarding ? 'Vui lòng hoàn thành bài kiểm tra xếp lớp trước' : item.label}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all group ${
+                !hasCompletedOnboarding ? 'opacity-40 cursor-not-allowed' : ''
+              } ${
                 isActive
                   ? 'bg-gradient-to-r from-teal-50/90 to-cyan-50/80 text-teal-900 font-semibold shadow-xs border border-teal-200/60'
                   : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'

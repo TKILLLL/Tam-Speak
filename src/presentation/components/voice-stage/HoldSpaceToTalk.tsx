@@ -4,6 +4,8 @@ import { useTamSpeakStore } from '../../store';
 import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer';
 import { container } from '../../../di/DIContainer';
 import { PracticeSession, DialogueTurn } from '../../../domain/entities/PracticeSession';
+import { aiService } from '../../../infrastructure/ai/AIService';
+import { getRandomIELTSQuestion } from '../../../infrastructure/data/ieltsQuestionBank';
 
 const RANDOM_STARTER_TOPICS = [
   {
@@ -97,15 +99,25 @@ export const HoldSpaceToTalk: React.FC = () => {
     toggleAutoVad,
     activeTopic,
     setActiveTopic,
+    activeTopicTitle,
+    activePart,
+    setActivePart,
     activeSession,
     setActiveSession,
+    lastAIMessage,
     setLastAIMessage,
+    currentExaminerPrompt,
+    setCurrentExaminerPrompt,
     toggleHideLastMessage,
     user,
     setRightPanelTab,
     addDialogueTurn,
     addPronunciationMistake,
     setLiveSpeechTranscript,
+    setMockTestProgress,
+    dialogueTurns,
+    setAiVocabHints,
+    setIsLoadingVocabHints,
   } = useTamSpeakStore();
 
   const [isHolding, setIsHolding] = useState(false);
@@ -301,69 +313,169 @@ export const HoldSpaceToTalk: React.FC = () => {
     const audioUrl = recResult?.blob ? URL.createObjectURL(recResult.blob) : undefined;
     const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);
 
-    // 5. Append User Dialogue Turn to Session Store
-    const userTurn: DialogueTurn = {
-      id: `turn-user-${Date.now()}`,
-      speaker: 'user',
-      text: spokenTranscript,
-      timestampSeconds: Math.round(actualDurationSeconds),
-      audioBlobId: recResult?.recordingId,
-      audioUrl,
-      actualDurationSeconds,
-      hesitationsDetected: analyzerStats.hesitations.length,
-      wpm: Math.round(analyzerStats.wpm),
-      mistakes: detectedMistakes,
-    };
-    addDialogueTurn(userTurn);
+    // 5. Plan next question according to IELTS mode / Full Mock / Conversation
+    let plannedNextQuestion = '';
+    let shouldAutoTriggerScoring = false;
 
-    // 6. Send turn to AI Roleplay Chat with Sliding Window
+    const currentMock = useTamSpeakStore.getState().mockTestProgress;
+    if (currentMock) {
+      if (currentMock.currentPart === 1) {
+        const nextIdx = currentMock.questionIndex + 1;
+        if (nextIdx < currentMock.part1Questions.length) {
+          plannedNextQuestion = currentMock.part1Questions[nextIdx]!;
+          setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
+        } else {
+          // Completed Part 1 -> Transition to Part 2!
+          setActivePart('part2');
+          setMockTestProgress({ ...currentMock, currentPart: 2, questionIndex: 0 });
+          if (currentMock.part2CueCard) {
+            plannedNextQuestion = `Now let us proceed to Part 2: Individual Long Turn. Your cue card topic is: "${currentMock.part2CueCard.title}".\n\nYou should say:\n${currentMock.part2CueCard.cueBulletPoints.map((pt) => `• ${pt}`).join('\n')}\n\nYou have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press and hold Space to speak!`;
+          } else {
+            plannedNextQuestion = 'Now let us proceed to Part 2: Individual Long Turn.';
+          }
+        }
+      } else if (currentMock.currentPart === 2) {
+        // Completed Part 2 -> Transition to Part 3!
+        setActivePart('part3');
+        setMockTestProgress({ ...currentMock, currentPart: 3, questionIndex: 0 });
+        plannedNextQuestion = currentMock.part3Questions[0] || 'In your opinion, how does this topic affect our wider society?';
+      } else if (currentMock.currentPart === 3) {
+        const nextIdx = currentMock.questionIndex + 1;
+        if (nextIdx < currentMock.part3Questions.length) {
+          plannedNextQuestion = currentMock.part3Questions[nextIdx]!;
+          setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
+        } else {
+          // Full Mock completed!
+          plannedNextQuestion = 'Thank you very much. That concludes your Full IELTS Speaking Mock Test. Let us analyze your comprehensive band rating and detailed feedback now.';
+          shouldAutoTriggerScoring = true;
+          setMockTestProgress(null);
+        }
+      }
+    } else if (activePart === 'part1' || activePart === 'part2' || activePart === 'part3') {
+      const excludeIds = dialogueTurns.map((t) => t.id);
+      const picked = getRandomIELTSQuestion({
+        part: activePart,
+        topicIdOrTitle: activeTopicTitle || activeTopic?.title,
+        excludeIds,
+      });
+      plannedNextQuestion = picked.question;
+    }
+
+    // 6. Call real Gemini AI Examiner Turn Evaluation
     try {
-      const topicInstruction =
-        activeTopic?.contextPrompt ||
-        'You are an encouraging IELTS Speaking Examiner. Ask follow-up questions and assess fluency.';
+      const topicName = activeTopicTitle || activeTopic?.title || 'Daily Conversation';
+      const promptToEvaluate = currentExaminerPrompt || lastAIMessage || 'Introduce yourself';
 
-      const result = await container.chatRoleplayUseCase.execute({
-        sessionId,
-        userId,
-        systemInstruction: topicInstruction,
-        userMessage: spokenTranscript,
-        timestampSeconds: Math.round(analyzerStats.durationSeconds),
+      const turnResult = await aiService.generateExaminerTurn({
+        topicTitle: topicName,
+        currentQuestion: promptToEvaluate,
+        userAnswer: spokenTranscript,
+        nextPlannedQuestion: plannedNextQuestion || undefined,
+        isFullMock: Boolean(currentMock),
+        partName: activePart,
       });
 
-      // 7. Append AI Dialogue Turn to Session Store
+      // Save any phonetic mistakes identified by AI into Pronunciation Lab
+      if (turnResult.mistakes && turnResult.mistakes.length > 0) {
+        turnResult.mistakes.forEach((m) => {
+          if (!detectedMistakes.some((d) => d.word.toLowerCase() === m.word.toLowerCase())) {
+            detectedMistakes.push({
+              word: m.word,
+              ipa: m.ipa,
+              reason: m.reason,
+              suggestedAlternative: m.suggestedAlternative,
+            });
+            addPronunciationMistake({
+              word: m.word,
+              ipa: m.ipa,
+              contextSentence: spokenTranscript,
+              errorReason: m.reason,
+              suggestedAlternative: m.suggestedAlternative,
+              topicTitle: topicName,
+            });
+          }
+        });
+      }
+
+      // 7. Append User Dialogue Turn to Session Store with suggested upgrade
+      const userTurn: DialogueTurn = {
+        id: `turn-user-${Date.now()}`,
+        speaker: 'user',
+        text: spokenTranscript,
+        timestampSeconds: Math.round(actualDurationSeconds),
+        audioBlobId: recResult?.recordingId,
+        audioUrl,
+        actualDurationSeconds,
+        hesitationsDetected: analyzerStats.hesitations.length,
+        wpm: Math.round(analyzerStats.wpm),
+        mistakes: detectedMistakes,
+        suggestedUpgrade: turnResult.suggestedUpgrade,
+      };
+      addDialogueTurn(userTurn);
+
+      // 8. Append AI Dialogue Turn to Session Store
+      const replyText = `${turnResult.feedbackTransition} ${turnResult.nextQuestion}`.trim();
       const aiTurn: DialogueTurn = {
         id: `turn-ai-${Date.now()}`,
         speaker: 'ai',
-        text: result.replyText,
+        text: replyText,
         timestampSeconds: Math.round(analyzerStats.durationSeconds) + 2,
-        ipaCorrections: result.ipaCorrections,
       };
       addDialogueTurn(aiTurn);
 
-      // 8. Update UI & Play Audio Reply
-      setLastAIMessage(result.replyText);
+      // 9. Update UI & Controls
+      setLastAIMessage(replyText);
+      setCurrentExaminerPrompt(turnResult.nextQuestion);
       setOrbState('speaking');
-      setRightPanelTab('qna');
 
-      container.speechTTSEngine.speak(result.replyText, {
+      if (shouldAutoTriggerScoring) {
+        setRightPanelTab('scoring');
+      } else {
+        setRightPanelTab('qna');
+      }
+
+      // 10. Background refresh Vocab Hints for the next question
+      setIsLoadingVocabHints(true);
+      aiService
+        .generateVocabHints(topicName, turnResult.nextQuestion)
+        .then((hints) => {
+          setAiVocabHints(hints);
+          setIsLoadingVocabHints(false);
+        })
+        .catch(() => {
+          setIsLoadingVocabHints(false);
+        });
+
+      // 11. Speak AI reply via TTS
+      container.speechTTSEngine.speak(replyText, {
         onEnd: () => setOrbState('idle'),
         onError: () => setOrbState('idle'),
       });
     } catch (err) {
-      console.error('AI execution error:', err);
+      console.error('AI examiner turn error:', err);
       setOrbState('idle');
       const errorMsg =
         (err as Error).message ||
-        'Lỗi kết nối AI. Vui lòng kiểm tra API Key trong mục AI & Voice Settings.';
+        'Lỗi kết nối AI. Vui lòng kiểm tra API Key trong mục Settings.';
       setLastAIMessage(`[Lỗi kết nối AI] ${errorMsg}`);
     }
   }, [
+    activePart,
     activeSession,
     activeTopic,
+    activeTopicTitle,
     addDialogueTurn,
     addPronunciationMistake,
     audioAnalyzer,
+    currentExaminerPrompt,
+    dialogueTurns,
+    lastAIMessage,
+    setActivePart,
+    setAiVocabHints,
+    setCurrentExaminerPrompt,
+    setIsLoadingVocabHints,
     setLastAIMessage,
+    setMockTestProgress,
     setOrbState,
     setRightPanelTab,
     user,
