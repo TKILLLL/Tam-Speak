@@ -3,8 +3,8 @@ import { SensitiveDataRedactor } from '../../security/SensitiveDataRedactor';
 
 export class GeminiProviderStrategy implements IAIProviderStrategy {
   constructor(
-    public readonly providerId: string, // e.g. 'gemini_pro', 'gemini_flash', 'gemini_flash_lite'
-    public readonly modelName: string   // e.g. 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'
+    public readonly providerId: string, // e.g. 'gemini_3_8_flash', 'gemini_3_5_flash_lite', 'gemini_3_6_flash'
+    public readonly modelName: string   // e.g. 'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash'
   ) {}
 
   public async generateChatCompletion(params: {
@@ -88,13 +88,19 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
       const jsonResponse = (await response.json()) as {
         candidates?: Array<{
           content?: {
-            parts?: Array<{ text?: string }>;
+            parts?: Array<{ text?: string; thought?: boolean }>;
           };
         }>;
       };
 
       const candidate = jsonResponse.candidates?.[0];
-      const text = candidate?.content?.parts?.[0]?.text;
+      const parts = candidate?.content?.parts || [];
+      // In Gemini 3, handle potential internal reasoning thought parts (thought: true)
+      const answerParts = parts.filter((p) => !p.thought && typeof p.text === 'string');
+      const text =
+        answerParts.length > 0
+          ? answerParts.map((p) => p.text).join('')
+          : parts.find((p) => typeof p.text === 'string')?.text;
 
       if (!text) {
         throw new Error(`Gemini returned empty candidate for model ${this.modelName}`);

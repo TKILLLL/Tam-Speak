@@ -7,11 +7,11 @@ export const DEFAULT_GEMINI_FALLBACK_KEY =
     : Buffer.from('QVEuQWI4Uk42SXJYUk9uWmUyd1JOTUluOGdUc211dlAxWFNmRVZXaHZ4UDhqWFZ6VEhfOWc=', 'base64').toString('utf-8');
 
 export const GEMINI_MODELS_FALLBACK_CHAIN = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
-  'gemini-2.5-pro',
+  'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
@@ -73,7 +73,7 @@ export interface PlacementTestResult {
  * AIService: 100% Google Gemini REST Architecture
  * - Uses Google Generative Language REST fetch with 'X-goog-api-key' Header
  * - Fallback Default Key configured via base64 encoded token
- * - Auto-select Model Fallback Chain: gemini-flash-latest -> gemini-2.5-flash -> ...
+ * - Auto-select Model Fallback Chain: gemini-3.8-flash -> gemini-3.5-flash-lite -> gemini-3.6-flash -> ...
  * - Automatically updates Header badge on model failover
  */
 export class AIService {
@@ -88,7 +88,7 @@ export class AIService {
   }
 
   public getCurrentModel(): GeminiModelName {
-    return GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex] || 'gemini-2.5-flash';
+    return GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex] || 'gemini-3.8-flash';
   }
 
   /**
@@ -185,7 +185,13 @@ export class AIService {
         }
 
         const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        // In Gemini 3, handle potential internal thought parts (thought: true)
+        const answerParts = parts.filter((p: any) => !p.thought && typeof p.text === 'string');
+        const text =
+          answerParts.length > 0
+            ? answerParts.map((p: any) => p.text).join('')
+            : parts.find((p: any) => typeof p.text === 'string')?.text;
         if (!text || text.trim().length === 0) {
           throw new Error(`Model ${modelName} returned empty text.`);
         }

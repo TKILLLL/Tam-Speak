@@ -97,18 +97,18 @@ export interface KeyPoolEntry {
 }
 
 export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
-  'gemini_2_5_flash',
-  'gemini_2_5_flash_lite',
-  'gemini_1_5_flash',
-  'gemini_1_5_pro',
-  'gemini_2_5_pro',
+  'gemini_3_8_flash',
+  'gemini_3_5_flash_lite',
+  'gemini_3_6_flash',
+  'gemini_3_5_flash',
+  'gemini_3_1_flash_lite',
 ] as const;
 
 /**
  * ResilientAIGateway
- * Production Google Gemini 100% Native REST Gateway:
+ * Production Google Gemini 3 Native REST Gateway:
  * - Direct REST fetch with X-goog-api-key header
- * - Automatic Fallback Chain: gemini-2.5-flash -> gemini-2.5-flash-lite -> gemini-1.5-flash -> gemini-1.5-pro -> gemini-2.5-pro
+ * - Automatic Fallback Chain: gemini-3.8-flash -> gemini-3.5-flash-lite -> gemini-3.6-flash -> gemini-3.5-flash -> gemini-3.1-flash-lite
  * - Automatic failover on 429/503/404 with instant badge update in Header
  * - Unified Key Resolution (BYOK from LocalStorage -> Env -> Secure Fallback)
  */
@@ -123,12 +123,12 @@ export class ResilientAIGateway implements IAIGateway {
       geminiKeys?: string[];
     }
   ) {
-    // Register active official Gemini Models in priority order (ultra-fast flash first)
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash', 'gemini-2.5-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash_lite', 'gemini-2.5-flash-lite'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_flash', 'gemini-1.5-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_1_5_pro', 'gemini-1.5-pro'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
+    // Register active official Gemini 3 Models in priority order (ultra-intelligent & fast flash first)
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_8_flash', 'gemini-3.8-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash_lite', 'gemini-3.5-flash-lite'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_6_flash', 'gemini-3.6-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash', 'gemini-3.5-flash'));
+    this.registerStrategy(new GeminiProviderStrategy('gemini_3_1_flash_lite', 'gemini-3.1-flash-lite'));
 
     // Initialize Key Pool with unified active key
     const initialKey = getActiveGeminiApiKey();
@@ -223,7 +223,7 @@ export class ResilientAIGateway implements IAIGateway {
     try {
       const base64Audio = await this.blobToBase64(audioBlob);
       const mimeType = audioBlob.type || 'audio/webm';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`;
 
       const resp = await fetch(url, {
         method: 'POST',

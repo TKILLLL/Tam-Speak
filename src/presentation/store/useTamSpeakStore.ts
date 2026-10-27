@@ -258,7 +258,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setAudioLevel: (audioLevel) => set({ audioLevel }),
   liveSpeechTranscript: '',
   setLiveSpeechTranscript: (liveSpeechTranscript) => set({ liveSpeechTranscript }),
-  activeAIProvider: 'Gemini 2.5 Flash',
+  activeAIProvider: 'Gemini 3.8 Flash',
   setActiveAIProvider: (activeAIProvider) => set({ activeAIProvider }),
   activeAIVoice: 'Aoede (US)',
   setActiveAIVoice: (activeAIVoice) => set({ activeAIVoice }),
