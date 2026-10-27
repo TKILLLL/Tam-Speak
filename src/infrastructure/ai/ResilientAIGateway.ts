@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GoogleGenAI } from '@google/genai';
 import {
   IAIGateway,
   EvaluationResult,
@@ -532,102 +533,138 @@ export class ResilientAIGateway implements IAIGateway {
         ipaCorrections: parsed.ipaCorrections,
         providerUsed,
       };
-    } catch {
-      return this.generateSimulatedRoleplayReply(params.userLatestMessage);
+    } catch (err) {
+      throw new Error(
+        `Không thể tạo phản hồi hội thoại: ${(err as Error).message || 'Lỗi kết nối AI'}. Vui lòng kiểm tra API Key trong Settings.`
+      );
     }
-  }
-
-  private generateSimulatedRoleplayReply(userText: string): RoleplayReplyResult {
-    const lower = userText.toLowerCase();
-    let reply = 'That is a thoughtful response. Moving along, could you expand on that with a specific personal example?';
-
-    if (lower.includes('hometown') || lower.includes('city') || lower.includes('live') || lower.includes('born')) {
-      reply = 'That gives a vivid picture of your area! How has your neighborhood transformed over the years, and do you think those changes are for the better?';
-    } else if (lower.includes('work') || lower.includes('job') || lower.includes('study') || lower.includes('major') || lower.includes('career')) {
-      reply = 'That sounds like a demanding yet rewarding path. What motivated you to pursue this direction in your life?';
-    } else if (lower.includes('travel') || lower.includes('trip') || lower.includes('holiday') || lower.includes('visit')) {
-      reply = 'Memorable journeys always shape our worldview. What was the most eye-opening cultural difference you experienced during that trip?';
-    } else if (lower.includes('technology') || lower.includes('ai') || lower.includes('phone') || lower.includes('app')) {
-      reply = 'Technology certainly plays an indispensable role today! In your opinion, will these advancements bring people closer or create more isolation?';
-    } else if (lower.includes('hobby') || lower.includes('music') || lower.includes('sport') || lower.includes('read')) {
-      reply = 'Engaging in hobbies is vital for mental balance. How often do you find time for this amidst your busy schedule?';
-    } else if (userText.split(/\s+/).filter(Boolean).length <= 4) {
-      reply = 'Could you tell me a little more about that? For instance, what are your reasons for that perspective?';
-    }
-
-    return {
-      replyText: reply,
-      suggestedCorrection: undefined,
-      ipaCorrections: [],
-      providerUsed: 'offline:conversational-evaluator',
-    };
   }
 
   /**
    * Speaking AI: Free Casual Conversation with Contextual Phonetic Auto-Correction
-   * Persona: Alex (Natural Native Companion, Zero Topic Restrictions)
-   * Full Session History & Temperature 0.85 for Rich Natural Expressiveness
+   * Real-time Multi-Turn Agent Pipeline powered by Google Gemini SDK (@google/genai)
+   * 100% Real LLM inference - Zero mock templates
    */
   public async chatSpeakingAI(params: {
     conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
     rawSttInput: string;
   }): Promise<SpeakingAIChatResult> {
     const rawSystemPrompt = [
-      `You are "Alex", a friendly, charismatic, and knowledgeable conversational native English speaker. You chat naturally just like Google Gemini with an authentic human vibe.`,
-      `CONVERSATIONAL GUIDELINES:`,
-      `1. NATURAL & FLEXIBLE: Converse fluidly based on what the user says without robotic formulas.`,
-      `   - If the user engages in casual banter or greets ("What's up?"), chat back casually with warm humor.`,
-      `   - If the user asks a question, seeks advice, or discusses a topic (movies, science, tech, emotions, daily life), provide an articulate, thoughtful, and insightful response.`,
-      `   - DO NOT end every response with an interview question. Only ask follow-up questions when it flows naturally in a genuine dialogue.`,
-      `   - Vary sentence lengths and emotional expressions naturally according to the context.`,
-      `2. SPOKEN NATIVE ENGLISH: Use natural phrasing, standard contractions (I'm, you're, that's, don't, gonna, wanna), and idiomatic expressions. Never sound like a textbook or rigid examiner.`,
-      `3. CONTEXTUAL PHONETIC AUTO-CORRECTION:`,
-      `   The user speaks into a microphone with Speech-to-Text (STT). Background noise or non-native pronunciation may cause STT to transcribe sound-alike words (e.g. "be a true for respond" -> "that is a thoughtful response", "eye one to see move" -> "I want to go see a movie").`,
-      `   - Cross-reference the prior conversation history and acoustic phonetic similarity to infer what the user genuinely meant.`,
-      `   - If STT was misheard: set "was_stt_misrecognized": true, determine "inferred_intended_meaning", and highlight "mispronounced_words" with phonetic explanations.`,
-      `   - If STT was accurate: set "was_stt_misrecognized": false, and "inferred_intended_meaning": raw_stt_input.`,
-      `   - In "friend_reply": respond directly to their intended meaning naturally. Do not criticize or lecture them for machine recognition quirks.`,
-      `   - In "casual_native_tip": provide a brief 1-sentence tip on a natural way native speakers express this (or empty string if already good).`,
+      `You are a friendly, natural conversational partner named Alex in a real-time voice chat with the user.`,
+      `CRITICAL RULES:`,
+      `1. LISTEN AND RESPOND DIRECTLY to the user's exact words and intent:`,
+      `   - If the user proposes a topic (e.g., "hello, let's talk about my family"), immediately agree enthusiastically and ask a natural question about their family (e.g., "Sure, I'd love to! How many people are in your family, and who are you closest to?").`,
+      `   - If the user asks YOU a personal/roleplay question (e.g., "How many people are in your family?"), adopt a consistent, relatable persona (e.g., "There are 4 people in my family—my parents, my younger sister, and me! What about yours?") so the two-way conversation flows naturally like talking to a real person.`,
+      `2. REMEMBER FULL CONTEXT: Keep track of every detail the user shared in previous turns (family members, hobbies, feelings, stories) and build upon them naturally.`,
+      `3. KEEP IT CONVERSATIONAL FOR VOICE: Keep your responses concise (1 to 3 natural sentences) so it sounds great when read aloud via Text-to-Speech. Never use rigid templates.`,
+      `4. AUTO-INTERPRET STT TYPOS: Since the user's input comes from Speech-to-Text, silently infer the intended words if there are minor homophone/phonetic recognition errors based on conversation context.`,
+      ``,
       `OUTPUT FORMAT: Return ONLY valid JSON:`,
       `{`,
-      `  "raw_stt_input": "...",`,
-      `  "inferred_intended_meaning": "...",`,
-      `  "was_stt_misrecognized": true/false,`,
-      `  "friend_reply": "...",`,
-      `  "casual_native_tip": "...",`,
-      `  "mispronounced_words": [ { "word": "...", "ipa": "/.../", "reason": "..." } ]`,
+      `  "friend_reply": "1 to 3 natural conversational sentences responding directly to what the user said",`,
+      `  "inferred_intended_meaning": "The intended text if STT misheard words, otherwise the user's exact words",`,
+      `  "was_stt_misrecognized": false,`,
+      `  "casual_native_tip": "Optional 1-sentence tip on natural native phrasing, or empty string",`,
+      `  "mispronounced_words": []`,
       `}`,
     ].join('\n');
 
-    const hardenedSystemPrompt = PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt);
+    // 1. Prepare history for Google Gemini SDK (@google/genai)
+    // Multi-turn Gemini requirement: First turn must be 'user', roles must alternate
+    const sdkHistory: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+    for (const turn of params.conversationHistory) {
+      const role: 'user' | 'model' = turn.speaker === 'user' ? 'user' : 'model';
+      if (sdkHistory.length === 0) {
+        if (role === 'model') {
+          sdkHistory.push({ role: 'user', parts: [{ text: 'Hi Alex!' }] });
+        }
+        sdkHistory.push({ role, parts: [{ text: turn.text }] });
+      } else {
+        const last = sdkHistory[sdkHistory.length - 1]!;
+        if (last.role === role) {
+          last.parts.push({ text: turn.text });
+        } else {
+          sdkHistory.push({ role, parts: [{ text: turn.text }] });
+        }
+      }
+    }
 
-    // Full Session History: Retain all turns from the beginning of the session
-    const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
-      role: turn.speaker === 'user' ? 'user' : 'assistant',
-      content: turn.text,
-    }));
+    // Ensure sdkHistory ends with a 'model' turn so the subsequent user message alternates correctly
+    let finalUserInput = params.rawSttInput;
+    if (sdkHistory.length > 0 && sdkHistory[sdkHistory.length - 1]!.role === 'user') {
+      const lastUserText = sdkHistory.pop()!.parts.map((p) => p.text).join(' ');
+      finalUserInput = `${lastUserText}\n${params.rawSttInput}`.trim();
+    }
 
-    const isolatedInput = PromptSecurityGuard.isolateUserInput(params.rawSttInput);
-    messages.push({
-      role: 'user',
-      content: isolatedInput,
-    });
+    // 2. Primary Execution: Direct Google Gemini SDK (@google/genai)
+    const geminiKey =
+      this.getPersonalKey('gemini') ||
+      (typeof window !== 'undefined' && window.localStorage?.getItem('tamspeak_byok_gemini')) ||
+      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) ||
+      this.keyPools.get('gemini')?.keys[0];
 
-    const providerChain = ['gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
+    if (geminiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const chat = ai.chats.create({
+          model: 'gemini-2.5-flash',
+          config: {
+            systemInstruction: rawSystemPrompt,
+            responseMimeType: 'application/json',
+            temperature: 0.85,
+          },
+          history: sdkHistory,
+        });
+
+        const resp = await chat.sendMessage({ message: finalUserInput });
+        const text = resp.text || '';
+        if (text.trim().length > 0) {
+          return this.parseSpeakingAIOutput(text, params.rawSttInput, 'gemini:@google/genai:gemini-2.5-flash');
+        }
+      } catch (geminiErr) {
+        console.warn('Google GenAI direct chat error, falling back to multi-provider chain:', geminiErr);
+      }
+    }
+
+    // 3. Secondary Fallback: Multi-Provider Gateway Chain (Gemini Pro, Flash, Groq, OpenRouter)
     try {
+      const messages: ChatMessagePayload[] = params.conversationHistory.map((turn) => ({
+        role: turn.speaker === 'user' ? 'user' : 'assistant',
+        content: turn.text,
+      }));
+      messages.push({
+        role: 'user',
+        content: PromptSecurityGuard.isolateUserInput(params.rawSttInput),
+      });
+
+      const providerChain = ['gemini_flash', 'gemini_flash_lite', 'groq', 'openrouter'];
       const { response, providerUsed } = await this.executeWithFallback(
         providerChain,
-        hardenedSystemPrompt,
+        PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt),
         messages,
         true,
-        0.85 // Temperature 0.85 for natural, diverse responses
+        0.85
       );
 
-      const parsed = PromptSecurityGuard.parseAndValidateJSON(response, speakingAIChatOutputSchema);
+      return this.parseSpeakingAIOutput(response, params.rawSttInput, providerUsed);
+    } catch {
+      // ZERO MOCK RULE: Absolutely never return canned/simulated dialogue. Surface the technical error.
+      throw new Error(
+        'Chưa cấu hình API Key hoặc kết nối AI thất bại. Vui lòng kiểm tra API Key (Google Gemini hoặc Groq) trong mục "AI & Voice Settings".'
+      );
+    }
+  }
 
+  private parseSpeakingAIOutput(
+    rawResponse: string,
+    rawSttInput: string,
+    providerUsed: string
+  ): SpeakingAIChatResult {
+    try {
+      const parsed = PromptSecurityGuard.parseAndValidateJSON(rawResponse, speakingAIChatOutputSchema);
       return {
-        rawSttInput: params.rawSttInput,
-        inferredIntendedMeaning: parsed.inferred_intended_meaning || params.rawSttInput,
+        rawSttInput,
+        inferredIntendedMeaning: parsed.inferred_intended_meaning || rawSttInput,
         wasSttMisrecognized: Boolean(parsed.was_stt_misrecognized),
         friendReply: parsed.friend_reply,
         casualNativeTip: parsed.casual_native_tip || undefined,
@@ -635,59 +672,42 @@ export class ResilientAIGateway implements IAIGateway {
         providerUsed,
       };
     } catch {
-      return this.generateSimulatedSpeakingAIReply(params.rawSttInput);
+      // Resilient fallback for plain text or markdown-wrapped JSON responses
+      const cleanedText = rawResponse
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const innerParsed = JSON.parse(jsonMatch[0]);
+          if (innerParsed && typeof innerParsed.friend_reply === 'string') {
+            return {
+              rawSttInput,
+              inferredIntendedMeaning: innerParsed.inferred_intended_meaning || rawSttInput,
+              wasSttMisrecognized: Boolean(innerParsed.was_stt_misrecognized),
+              friendReply: innerParsed.friend_reply,
+              casualNativeTip: innerParsed.casual_native_tip || undefined,
+              mispronouncedWords: innerParsed.mispronounced_words || [],
+              providerUsed,
+            };
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        rawSttInput,
+        inferredIntendedMeaning: rawSttInput,
+        wasSttMisrecognized: false,
+        friendReply: cleanedText || 'I hear you! What would you like to explore next?',
+        casualNativeTip: undefined,
+        mispronouncedWords: [],
+        providerUsed,
+      };
     }
-  }
-
-  private generateSimulatedSpeakingAIReply(rawSttInput: string): SpeakingAIChatResult {
-    const lower = rawSttInput.toLowerCase();
-    
-    // Check for common phonetic confusions or tricky pronunciation
-    let inferredMeaning = rawSttInput;
-    let wasMisrecognized = false;
-    const mispronounced: Array<{ word: string; ipa: string; reason: string }> = [];
-
-    if (lower.includes('true for respond') || lower.includes('true for') || lower.includes('truthful respond')) {
-      inferredMeaning = rawSttInput.replace(/be a true for respond|true for respond|truthful respond/gi, 'thoughtful response');
-      wasMisrecognized = true;
-      mispronounced.push({
-        word: 'thoughtful',
-        ipa: '/ˈθɔːtfəl/',
-        reason: 'Voiceless dental fricative /θ/ and consonant blend sounded like "true for"',
-      });
-    }
-
-    let friendReply = "Haha totally! That is so true. What else have you been up to today?";
-    let nativeTip = "";
-
-    if (lower.includes('hello') || lower.includes('hey') || lower.includes('hi') || lower.includes("what's up") || lower.includes('how are you')) {
-      friendReply = "Hey! Doing great here, just chilling. How is your day treating you so far?";
-      nativeTip = "To sound extra casual, you can say 'Hey, what's good?' or 'Not much, just taking it easy!'";
-    } else if (lower.includes('tired') || lower.includes('exhausted') || lower.includes('sleepy') || lower.includes('busy')) {
-      friendReply = "Oh man, I totally feel you. Get some good rest tonight, do not push yourself too hard!";
-      nativeTip = "'I am beat' or 'I am wiped out' are great native ways to express being tired.";
-    } else if (lower.includes('movie') || lower.includes('film') || lower.includes('show') || lower.includes('netflix')) {
-      friendReply = "No way, I love that genre! Any recommendations on what I should watch next?";
-      nativeTip = "You can ask 'Have you caught any good shows lately?' for natural small talk.";
-    } else if (lower.includes('weekend') || lower.includes('tomorrow') || lower.includes('sunday') || lower.includes('saturday')) {
-      friendReply = "Sounds like fun! Hope you get to recharge and do something you really enjoy.";
-      nativeTip = "Try saying 'I am looking forward to unwinding' instead of 'I want to relax'.";
-    } else if (lower.includes('work') || lower.includes('boss') || lower.includes('office') || lower.includes('project')) {
-      friendReply = "Work can be a grind sometimes, but you are handling it like a champ! Hang in there.";
-    } else if (lower.includes('food') || lower.includes('eat') || lower.includes('lunch') || lower.includes('dinner') || lower.includes('coffee')) {
-      friendReply = "Now you are making me hungry! What kind of food are you in the mood for?";
-      nativeTip = "'I am craving some...' is the go-to native phrase for wanting specific food.";
-    }
-
-    return {
-      rawSttInput,
-      inferredIntendedMeaning: inferredMeaning,
-      wasSttMisrecognized: wasMisrecognized,
-      friendReply,
-      casualNativeTip: nativeTip || undefined,
-      mispronouncedWords: mispronounced,
-      providerUsed: 'offline:casual-friend-engine',
-    };
   }
 
   /**

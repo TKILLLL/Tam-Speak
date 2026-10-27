@@ -350,25 +350,12 @@ export const HoldSpaceToTalk: React.FC = () => {
         onError: () => setOrbState('idle'),
       });
     } catch (err) {
-      console.warn('AI execution fallback:', err);
-      const fallbackReply = `That is an interesting thought regarding "${activeTopic?.title || 'our discussion'}". Could you elaborate more on how that impacts you personally?`;
-      
-      const aiFallbackTurn: DialogueTurn = {
-        id: `turn-ai-${Date.now()}`,
-        speaker: 'ai',
-        text: fallbackReply,
-        timestampSeconds: Math.round(analyzerStats.durationSeconds) + 2,
-      };
-      addDialogueTurn(aiFallbackTurn);
-
-      setLastAIMessage(fallbackReply);
-      setOrbState('speaking');
-      setRightPanelTab('qna');
-
-      container.speechTTSEngine.speak(fallbackReply, {
-        onEnd: () => setOrbState('idle'),
-        onError: () => setOrbState('idle'),
-      });
+      console.error('AI execution error:', err);
+      setOrbState('idle');
+      const errorMsg =
+        (err as Error).message ||
+        'Lỗi kết nối AI. Vui lòng kiểm tra API Key trong mục AI & Voice Settings.';
+      setLastAIMessage(`[Lỗi kết nối AI] ${errorMsg}`);
     }
   }, [
     activeSession,

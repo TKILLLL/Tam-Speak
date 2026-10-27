@@ -78,6 +78,7 @@ export const SpeakingAIView: React.FC = () => {
   } = useTamSpeakStore();
 
   const [isHolding, setIsHolding] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const audioAnalyzer = useAudioAnalyzer();
   const transcriptBufferRef = useRef('');
   const isHoldingRef = useRef(false);
@@ -297,25 +298,22 @@ export const SpeakingAIView: React.FC = () => {
         },
       });
     } catch (err) {
-      console.warn('Speaking AI conversation error:', err);
-      const fallbackReply = "Totally, that makes sense! What else is on your mind?";
-      const aiFallbackTurn: EphemeralTurn = {
-        id: `ephem-ai-${Date.now()}`,
-        speaker: 'ai',
-        text: fallbackReply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      addEphemeralMessage(aiFallbackTurn);
+      console.error('Speaking AI conversation error:', err);
+      setOrbState('idle');
+      const errorMsg =
+        (err as Error).message ||
+        'Chưa cấu hình API Key hoặc kết nối AI thất bại. Vui lòng kiểm tra API Key (Google Gemini hoặc Groq) trong mục "AI & Voice Settings".';
+      setErrorMessage(errorMsg);
 
-      setOrbState('speaking');
-      container.speechTTSEngine.speak(fallbackReply, {
-        onEnd: () => {
-          if (isMountedRef.current) setOrbState('idle');
-        },
-        onError: () => {
-          if (isMountedRef.current) setOrbState('idle');
-        },
-      });
+      // Preserve user speech in the ephemeral stream without fake AI reply
+      const userTurn: EphemeralTurn = {
+        id: `ephem-user-${Date.now()}`,
+        speaker: 'user',
+        text: spokenTranscript,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        rawSttInput: spokenTranscript,
+      };
+      addEphemeralMessage(userTurn);
     }
   }, [
     addEphemeralMessage,
@@ -403,6 +401,7 @@ export const SpeakingAIView: React.FC = () => {
     });
 
     clearEphemeralMessages();
+    setErrorMessage(null);
 
     // Start fresh with a friendly greeting
     const newGreetingTurn: EphemeralTurn = {
@@ -462,6 +461,21 @@ export const SpeakingAIView: React.FC = () => {
       {/* Part 1: Upper Chat Area (Scrollable Message Thread) */}
       <section className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         <div className="max-w-3xl w-full mx-auto space-y-4">
+          {errorMessage && (
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center justify-between shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                <span className="font-medium">{errorMessage}</span>
+              </div>
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-red-500 hover:text-red-700 font-semibold px-2 py-0.5 rounded-md hover:bg-red-100 transition-colors shrink-0"
+              >
+                Đóng
+              </button>
+            </div>
+          )}
+
           {ephemeralMessages.map((msg) => (
             <div
               key={msg.id}

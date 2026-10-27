@@ -11,6 +11,7 @@
     "test": "tsx src/test/domain_phase1_test.ts && tsx src/test/security_ai_phase2_test.ts && tsx src/test/application_audio_phase3_test.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.31.0",
     "@supabase/supabase-js": "^2.49.1",
     "clsx": "^2.1.1",
     "dexie": "^4.0.11",
