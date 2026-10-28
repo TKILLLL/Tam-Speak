@@ -53,10 +53,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <h3 className="font-bold text-sm mb-1">
             {this.props.fallbackTitle || 'Không thể hiển thị khu vực này'}
           </h3>
-          <p className="text-xs text-amber-800/80 mb-4 max-w-sm">
+          <p className="text-xs text-amber-800/80 mb-3 max-w-sm">
             {this.props.fallbackMessage ||
               'Đã xảy ra lỗi kết xuất tạm thời. Toàn bộ ứng dụng của bạn vẫn đang hoạt động an toàn.'}
           </p>
+          {this.state.error && (
+            <div className="mt-1 mb-4 p-2.5 rounded-lg bg-amber-100/70 border border-amber-300/60 text-[11px] font-mono text-amber-900 max-w-sm overflow-x-auto text-left break-words">
+              {this.state.error.message || String(this.state.error)}
+            </div>
+          )}
           <button
             onClick={this.handleRetry}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"

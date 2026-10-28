@@ -68,15 +68,15 @@ export const WordLookupTooltip: React.FC<WordLookupTooltipProps> = ({
   const handleSaveToVocabBank = async () => {
     if (!user || !entry) return;
     try {
-      const firstMeaning = entry.meanings[0];
+      const firstMeaning = entry.meanings?.[0];
       await container.vocabRepository.save(
         VocabularyItem.create({
           id: `vocab-${Date.now()}`,
           userId: user.id,
           word: entry.word,
-          ipa: entry.ipa,
+          ipa: entry.ipa || null,
           definitionEn: firstMeaning?.definition || 'Saved from transcript',
-          definitionVi: translatedText,
+          definitionVi: translatedText || '',
           exampleSentence: firstMeaning?.example || null,
         })
       );

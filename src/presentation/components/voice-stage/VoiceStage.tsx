@@ -16,7 +16,8 @@ export const VoiceStage: React.FC = () => {
   } = useTamSpeakStore();
 
   const displayTitle = activeTopicTitle || activeTopic?.title || 'Part 1: Introduction & Interview';
-  const displayPart = activePart ? activePart.replace('_', ' ') : practiceMode.replace('_', ' ');
+  const rawPart = activePart || practiceMode || 'part1';
+  const displayPart = String(rawPart).replace(/_/g, ' ');
 
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-6 overflow-y-auto relative bg-gradient-to-b from-white via-slate-50/60 to-slate-100/40 select-none">
@@ -34,7 +35,7 @@ export const VoiceStage: React.FC = () => {
 
       {/* Center Voice Core: Glowing Orb + Interactive Transcript */}
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-xl">
-        <GlowingOrbVisualizer orbState={orbState} />
+        <GlowingOrbVisualizer orbState={orbState || 'idle'} />
         <InteractiveTranscriptBox />
       </div>
 

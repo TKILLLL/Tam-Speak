@@ -46,20 +46,24 @@ export const InteractiveTranscriptBox: React.FC = () => {
   // Text Selection detection for 0-token word lookup tooltip
   const handleMouseUp = () => {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) {
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
       return;
     }
 
     const text = selection.toString().trim();
     // Only show tooltip for single words or short phrases <= 3 words
     if (text.length > 0 && text.split(/\s+/).length <= 3) {
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      setSelectedWord(text);
-      setTooltipPos({
-        top: rect.top,
-        left: rect.left + rect.width / 2,
-      });
+      try {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setSelectedWord(text);
+        setTooltipPos({
+          top: rect.top,
+          left: rect.left + rect.width / 2,
+        });
+      } catch {
+        // Guard against detached ranges
+      }
     }
   };
 
