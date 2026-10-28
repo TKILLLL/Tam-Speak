@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { SharedAudioContext } from './SharedAudioContext';
 
 export interface HesitationMarker {
   startSeconds: number;
@@ -42,10 +43,11 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [currentWpm, setCurrentWpm] = useState(0);
 
-  const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const lastStateEmitTimeRef = useRef<number>(0);
 
   const recordingStartTimeRef = useRef(0);
   const silenceStartTimeRef = useRef<number | null>(null);
@@ -71,28 +73,34 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
     }
     const rms = Math.sqrt(sumSquares / timeData.length);
     const normalizedLevel = Math.min(1.0, rms * 5.0); // Boosted for UI visualization
-    setAudioLevel(normalizedLevel);
 
-    // Compute 32-bin frequency spectrum
-    const freqData = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(freqData);
+    // 60FPS Direct GPU Broadcast: Update visualizers without triggering React virtual DOM tree re-render
+    SharedAudioContext.broadcastLevel(normalizedLevel);
 
-    const binSize = Math.floor(freqData.length / 32);
-    const bins: number[] = [];
-    for (let i = 0; i < 32; i++) {
-      let sum = 0;
-      for (let j = 0; j < binSize; j++) {
-        sum += freqData[i * binSize + j] ?? 0;
+    const now = Date.now();
+    // Throttle React state updates to ~150ms to prevent forcing the parent views to re-render 60fps
+    if (now - lastStateEmitTimeRef.current > 150) {
+      lastStateEmitTimeRef.current = now;
+      setAudioLevel(normalizedLevel);
+
+      // Compute 32-bin frequency spectrum
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(freqData);
+
+      const binSize = Math.floor(freqData.length / 32);
+      const bins: number[] = [];
+      for (let i = 0; i < 32; i++) {
+        let sum = 0;
+        for (let j = 0; j < binSize; j++) {
+          sum += freqData[i * binSize + j] ?? 0;
+        }
+        bins.push(Math.round(sum / binSize));
       }
-      bins.push(Math.round(sum / binSize));
+      setFrequencyData(bins);
+      setDurationSeconds((now - recordingStartTimeRef.current) / 1000);
     }
-    setFrequencyData(bins);
 
     // Silence & Hesitation Tracking
-    const now = Date.now();
-    const elapsedSeconds = (now - recordingStartTimeRef.current) / 1000;
-    setDurationSeconds(elapsedSeconds);
-
     if (rms < SILENCE_RMS_THRESHOLD) {
       if (silenceStartTimeRef.current === null) {
         silenceStartTimeRef.current = now;
@@ -133,8 +141,12 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
       },
     });
 
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const audioContext = new AudioContextClass();
+    // Reuse singleton AudioContext to prevent Chrome/Safari 6-instance hardware limit
+    const audioContext = SharedAudioContext.getContext();
+    if (!audioContext) {
+      throw new Error('Web Audio API is not supported in this environment.');
+    }
+
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.8;
@@ -142,7 +154,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
 
-    audioContextRef.current = audioContext;
+    sourceRef.current = source;
     analyserRef.current = analyser;
     streamRef.current = stream;
 
@@ -152,6 +164,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
     setCurrentWpm(0);
 
     recordingStartTimeRef.current = Date.now();
+    lastStateEmitTimeRef.current = 0;
     silenceStartTimeRef.current = null;
     setIsListening(true);
 
@@ -165,15 +178,28 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
       animFrameRef.current = null;
     }
 
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.disconnect();
+      } catch {
+        // Safe ignore
+      }
+      sourceRef.current = null;
+    }
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // Safe ignore
+        }
+      });
       streamRef.current = null;
     }
 
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
+    analyserRef.current = null;
+    SharedAudioContext.broadcastLevel(0);
 
     setIsListening(false);
     setAudioLevel(0);
@@ -200,10 +226,23 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
   useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
+      if (sourceRef.current) {
+        try {
+          sourceRef.current.disconnect();
+        } catch {
+          // ignore
+        }
       }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {
+            // ignore
+          }
+        });
+      }
+      SharedAudioContext.broadcastLevel(0);
     };
   }, []);
 

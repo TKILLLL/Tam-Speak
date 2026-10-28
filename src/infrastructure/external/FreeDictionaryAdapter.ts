@@ -28,16 +28,25 @@ interface RawDictionaryResponseEntry {
  */
 export class FreeDictionaryAdapter {
   private static readonly BASE_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en';
+  private static readonly memoryCache = new Map<string, DictionaryEntry | null>();
 
   public async fetchWordDetails(word: string): Promise<DictionaryEntry | null> {
     const cleanedWord = word.trim().toLowerCase();
     if (!cleanedWord) return null;
 
+    // Check fast in-memory cache (0ms return)
+    if (FreeDictionaryAdapter.memoryCache.has(cleanedWord)) {
+      return FreeDictionaryAdapter.memoryCache.get(cleanedWord) || null;
+    }
+
     const url = `${FreeDictionaryAdapter.BASE_URL}/${encodeURIComponent(cleanedWord)}`;
 
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (response.status === 404) {
+        FreeDictionaryAdapter.memoryCache.set(cleanedWord, null);
         return null;
       }
       if (!response.ok) {
@@ -46,6 +55,7 @@ export class FreeDictionaryAdapter {
 
       const json = (await response.json()) as RawDictionaryResponseEntry[];
       if (!Array.isArray(json) || json.length === 0) {
+        FreeDictionaryAdapter.memoryCache.set(cleanedWord, null);
         return null;
       }
 
@@ -94,12 +104,21 @@ export class FreeDictionaryAdapter {
         };
       });
 
-      return {
+      const result: DictionaryEntry = {
         word: entry.word,
         ipa: ipaVo,
         audioSampleUrl: audioUrl,
         meanings,
       };
+
+      // Store in LRU in-memory cache (limit size to 200)
+      if (FreeDictionaryAdapter.memoryCache.size > 200) {
+        const firstKey = FreeDictionaryAdapter.memoryCache.keys().next().value;
+        if (firstKey) FreeDictionaryAdapter.memoryCache.delete(firstKey);
+      }
+      FreeDictionaryAdapter.memoryCache.set(cleanedWord, result);
+
+      return result;
     } catch {
       // In case of network errors or offline state, return null so application remains resilient
       return null;

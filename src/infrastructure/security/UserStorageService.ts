@@ -54,6 +54,28 @@ export class UserStorageService {
     }
   }
 
+  private static debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /**
+   * Writes to localStorage with a debounce delay to prevent synchronous main-thread blocking.
+   */
+  public static setItemDebounced(key: string, value: string, delayMs = 300): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const existing = UserStorageService.debounceTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const timer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // ignore
+      }
+      UserStorageService.debounceTimers.delete(key);
+    }, delayMs);
+    UserStorageService.debounceTimers.set(key, timer);
+  }
+
   // --- Settings ---
   public static getUserSettings(userId?: string | null): UserSettingsBundle | null {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -66,15 +88,10 @@ export class UserStorageService {
   }
 
   public static setUserSettings(settings: UserSettingsBundle, userId?: string | null): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    try {
-      window.localStorage.setItem(
-        UserStorageService.getKey('settings', userId),
-        JSON.stringify(settings)
-      );
-    } catch {
-      // ignore
-    }
+    UserStorageService.setItemDebounced(
+      UserStorageService.getKey('settings', userId),
+      JSON.stringify(settings)
+    );
   }
 
   // --- Personal Gemini API Key (Vault) ---

@@ -14,50 +14,69 @@ import { motion } from 'framer-motion';
 import { useTamSpeakStore, EphemeralTurn, OrbState } from '../../store';
 import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer';
 import { SpeechNoiseFilter } from '../../../infrastructure/audio/SpeechNoiseFilter';
+import { SharedAudioContext } from '../../../infrastructure/audio/SharedAudioContext';
+import { LiveSpeechDetectionBar } from '../voice-stage/LiveSpeechDetectionBar';
 import { container } from '../../../di/DIContainer';
 
 const INITIAL_FRIEND_GREETING =
   "Hey! What's up? How is your day going so far?";
 
-const MiniGlowingOrb: React.FC<{ orbState: OrbState; audioLevel: number }> = ({
+const MiniGlowingOrb: React.FC<{ orbState: OrbState }> = ({
   orbState,
-  audioLevel,
 }) => {
-  const dynamicScale = orbState === 'listening' ? 1 + audioLevel * 0.35 : 1;
+  const coreRef = useRef<HTMLDivElement>(null);
+  const haloRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (orbState !== 'listening') return;
+
+    const unsubscribe = SharedAudioContext.subscribeLevel((level) => {
+      const scale = 1 + level * 0.35;
+      if (coreRef.current) {
+        coreRef.current.style.transform = `scale3d(${scale}, ${scale}, 1)`;
+      }
+      if (haloRef.current) {
+        haloRef.current.style.transform = `scale3d(${scale * 1.2}, ${scale * 1.2}, 1)`;
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (coreRef.current) coreRef.current.style.transform = '';
+      if (haloRef.current) haloRef.current.style.transform = '';
+    };
+  }, [orbState]);
 
   return (
     <div className="relative flex items-center justify-center w-10 h-10 shrink-0">
-      <motion.div
-        animate={
-          orbState === 'idle'
-            ? { scale: [1, 1.1, 1], opacity: [0.35, 0.55, 0.35] }
-            : orbState === 'listening'
-            ? { scale: dynamicScale * 1.25, opacity: 0.8 }
-            : orbState === 'thinking'
-            ? { rotate: 360, opacity: [0.5, 0.8, 0.5] }
-            : { scale: [1, 1.18, 1], opacity: [0.65, 0.95, 0.65] }
-        }
-        transition={
-          orbState === 'thinking'
-            ? { repeat: Infinity, duration: 2.2, ease: 'linear' }
-            : { repeat: Infinity, duration: 3, ease: 'easeInOut' }
-        }
-        className="absolute w-8 h-8 rounded-full bg-gradient-to-tr from-teal-500 via-cyan-400 to-sky-300 blur-xs pointer-events-none"
-      />
-      <motion.div
-        animate={
-          orbState === 'idle'
-            ? { scale: [1, 1.05, 1] }
-            : orbState === 'listening'
-            ? { scale: dynamicScale }
-            : orbState === 'thinking'
-            ? { scale: [0.95, 1.05, 0.95] }
-            : { scale: [1, 1.08, 1] }
-        }
-        className="relative w-8 h-8 rounded-full bg-gradient-to-br from-teal-500 via-cyan-500 to-teal-700 shadow-xs border border-white/70 flex items-center justify-center"
+      <div
+        ref={haloRef}
+        style={{ willChange: 'transform' }}
+        className="absolute w-8 h-8 rounded-full bg-gradient-to-tr from-teal-500 via-cyan-400 to-sky-300 blur-xs pointer-events-none transition-transform duration-75"
+      >
+        <motion.div
+          animate={
+            orbState === 'idle'
+              ? { scale: [1, 1.1, 1], opacity: [0.35, 0.55, 0.35] }
+              : orbState === 'thinking'
+              ? { rotate: 360, opacity: [0.5, 0.8, 0.5] }
+              : { scale: [1, 1.18, 1], opacity: [0.65, 0.95, 0.65] }
+          }
+          transition={
+            orbState === 'thinking'
+              ? { repeat: Infinity, duration: 2.2, ease: 'linear' }
+              : { repeat: Infinity, duration: 3, ease: 'easeInOut' }
+          }
+          className="w-full h-full rounded-full"
+        />
+      </div>
+      <div
+        ref={coreRef}
+        style={{ willChange: 'transform' }}
+        className="relative w-8 h-8 rounded-full bg-gradient-to-br from-teal-500 via-cyan-500 to-teal-700 shadow-xs border border-white/70 flex items-center justify-center transition-transform duration-75"
       >
         <Sparkles className="w-3.5 h-3.5 text-white" />
-      </motion.div>
+      </div>
     </div>
   );
 };
@@ -66,9 +85,6 @@ export const SpeakingAIView: React.FC = () => {
   const {
     orbState,
     setOrbState,
-    audioLevel,
-    setAudioLevel,
-    liveSpeechTranscript,
     setLiveSpeechTranscript,
     isAutoVadEnabled,
     setIsAutoVadEnabled,
@@ -89,18 +105,15 @@ export const SpeakingAIView: React.FC = () => {
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const isMountedRef = useRef(false);
   const lastApiCallTimestampRef = useRef<number>(0);
-
-  // Sync real-time audio amplitude to store for Mini Glowing Orb
-  useEffect(() => {
-    if (audioAnalyzer.isListening) {
-      setAudioLevel(audioAnalyzer.audioLevel);
-    }
-  }, [audioAnalyzer.audioLevel, audioAnalyzer.isListening, setAudioLevel]);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef<string>(
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ai-session-${Date.now()}`
+  );
 
   // Auto-scroll chat stream to the latest message
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [ephemeralMessages, liveSpeechTranscript, orbState]);
+  }, [ephemeralMessages, orbState]);
 
   // Initial Greeting & Lifecycle Ephemeral Memory Cleanup (Requirement 2 & 3 & 4)
   useEffect(() => {
@@ -268,7 +281,25 @@ export const SpeakingAIView: React.FC = () => {
     }
     spokenTranscript = speechValidation.cleanedText;
 
-    // 4. Stale Closure Fix: Always read the latest full session history directly from store
+    // 4. Optimistic UI: Display user utterance immediately (0ms latency feedback)
+    const optimisticTurnId = `ephem-user-${Date.now()}`;
+    const optimisticUserTurn: EphemeralTurn = {
+      id: optimisticTurnId,
+      speaker: 'user',
+      text: spokenTranscript,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      rawSttInput: spokenTranscript,
+    };
+    addEphemeralMessage(optimisticUserTurn);
+
+    // 5. Network Race Condition Guard: Track current turn session ID
+    const turnSessionId = sessionIdRef.current;
+    if (activeAbortControllerRef.current) {
+      activeAbortControllerRef.current.abort();
+    }
+    activeAbortControllerRef.current = new AbortController();
+
+    // 6. Stale Closure Fix: Always read the latest full session history directly from store
     const latestMessages = useTamSpeakStore.getState().ephemeralMessages;
     const fullSessionHistory = latestMessages.map((m) => ({
       speaker: m.speaker,
@@ -292,7 +323,12 @@ export const SpeakingAIView: React.FC = () => {
         conversationHistory: fullSessionHistory,
       });
 
-      // 5. Save mispronounced words immediately to Pronunciation & IPA Lab
+      // Async Race Condition Check: If user cleared chat or left view, drop stale result
+      if (turnSessionId !== sessionIdRef.current) {
+        return;
+      }
+
+      // 7. Save mispronounced words immediately to Pronunciation & IPA Lab
       result.mispronouncedWords?.forEach((m) => {
         addPronunciationMistake({
           word: m.word,
@@ -304,21 +340,7 @@ export const SpeakingAIView: React.FC = () => {
         });
       });
 
-      // 6. Push User Turn (with Contextual Phonetic Auto-Correction metadata)
-      const userTurn: EphemeralTurn = {
-        id: `ephem-user-${Date.now()}`,
-        speaker: 'user',
-        text: result.inferredIntendedMeaning || spokenTranscript,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        rawSttInput: spokenTranscript,
-        inferredIntendedMeaning: result.inferredIntendedMeaning,
-        wasSttMisrecognized: result.wasSttMisrecognized,
-        casualNativeTip: result.casualNativeTip,
-        mispronouncedWords: result.mispronouncedWords,
-      };
-      addEphemeralMessage(userTurn);
-
-      // 7. Push AI Turn
+      // 8. Push AI Turn
       const aiTurn: EphemeralTurn = {
         id: `ephem-ai-${Date.now()}`,
         speaker: 'ai',
@@ -327,7 +349,7 @@ export const SpeakingAIView: React.FC = () => {
       };
       addEphemeralMessage(aiTurn);
 
-      // 8. Play AI speech reply via TTS
+      // 9. Play AI speech reply via TTS
       setOrbState('speaking');
       container.speechTTSEngine.speak(result.friendReply, {
         onEnd: () => {
@@ -402,11 +424,28 @@ export const SpeakingAIView: React.FC = () => {
       }
     };
 
+    // Prevent stuck "Recording" state when Alt+Tabbing or clicking out of browser
+    const handleBlur = () => {
+      if (isHoldingRef.current) {
+        stopVoiceInput();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && isHoldingRef.current) {
+        stopVoiceInput();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [startVoiceInput, stopVoiceInput]);
 
@@ -466,6 +505,12 @@ export const SpeakingAIView: React.FC = () => {
 
   // Reset / Clear Chat Stream
   const handleClearChat = () => {
+    if (activeAbortControllerRef.current) {
+      activeAbortControllerRef.current.abort();
+      activeAbortControllerRef.current = null;
+    }
+    sessionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ai-session-${Date.now()}`;
+
     container.speechTTSEngine.stop();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -684,23 +729,14 @@ export const SpeakingAIView: React.FC = () => {
       {/* Part 2: Fixed Audio Station (Pinned permanently at bottom) */}
       <footer className="shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md px-6 py-3.5 z-10 shadow-lg">
         <div className="max-w-3xl w-full mx-auto space-y-2.5">
-          {/* Live Speech Detection Text (real-time stream) */}
-          {(orbState === 'listening' || liveSpeechTranscript) && (
-            <div className="w-full p-2 px-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs shadow-2xs flex items-center gap-2 animate-in fade-in">
-              <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping shrink-0" />
-              <span className="text-slate-500 font-semibold shrink-0">Live Detection:</span>
-              <span className="font-medium text-slate-900 truncate">
-                {liveSpeechTranscript || 'Listening... speak into your microphone'}
-              </span>
-              <span className="inline-block w-1.5 h-3.5 bg-teal-600 animate-pulse shrink-0" />
-            </div>
-          )}
+          {/* Live Speech Detection Text (Decoupled atomic 60fps renderer) */}
+          <LiveSpeechDetectionBar />
 
           {/* Control Bar: Mini Glowing Orb + Hold [Space] Button + Auto VAD & Clear */}
           <div className="flex items-center justify-between gap-3">
             {/* Left: Mini Glowing AI Orb & State */}
             <div className="flex items-center gap-2.5 min-w-[120px]">
-              <MiniGlowingOrb orbState={orbState} audioLevel={audioLevel} />
+              <MiniGlowingOrb orbState={orbState} />
               <div className="hidden sm:flex flex-col">
                 <span className="text-xs font-bold text-slate-800">Alex</span>
                 <span className="text-[10px] text-slate-500">

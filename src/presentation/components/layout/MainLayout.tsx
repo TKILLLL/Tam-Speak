@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { VoiceStage } from '../voice-stage/VoiceStage';
@@ -6,14 +6,24 @@ import { RightControlPanel } from '../right-panel/RightControlPanel';
 import { AuthModal } from '../auth/AuthModal';
 import { AdminRouteGuard } from '../auth/AdminRouteGuard';
 import { useTamSpeakStore } from '../../store';
-import { SettingsView } from '../views/SettingsView';
-import { RawDataStudioView } from '../views/RawDataStudioView';
-import { ProgressDashboardView } from '../views/ProgressDashboardView';
-import { PronunciationLabView } from '../views/PronunciationLabView';
-import { ProfileView } from '../views/ProfileView';
 import { SpeakingAIView } from '../views/SpeakingAIView';
-import { OnboardingWizardView } from '../views/OnboardingWizardView';
-import { SlidersHorizontal, AlertTriangle, AlertCircle, RefreshCw, PanelRightOpen } from 'lucide-react';
+import { ErrorBoundary } from '../common/ErrorBoundary';
+import { SlidersHorizontal, AlertTriangle, AlertCircle, RefreshCw, PanelRightOpen, Loader2 } from 'lucide-react';
+
+// Code Splitting (Lazy-load heavy secondary modules to achieve < 0.5s initial bundle load)
+const SettingsView = lazy(() => import('../views/SettingsView').then((m) => ({ default: m.SettingsView })));
+const RawDataStudioView = lazy(() => import('../views/RawDataStudioView').then((m) => ({ default: m.RawDataStudioView })));
+const ProgressDashboardView = lazy(() => import('../views/ProgressDashboardView').then((m) => ({ default: m.ProgressDashboardView })));
+const PronunciationLabView = lazy(() => import('../views/PronunciationLabView').then((m) => ({ default: m.PronunciationLabView })));
+const ProfileView = lazy(() => import('../views/ProfileView').then((m) => ({ default: m.ProfileView })));
+const OnboardingWizardView = lazy(() => import('../views/OnboardingWizardView').then((m) => ({ default: m.OnboardingWizardView })));
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="flex-1 flex flex-col items-center justify-center p-8 text-slate-400">
+    <Loader2 className="w-7 h-7 text-teal-600 animate-spin mb-3" />
+    <span className="text-xs font-medium text-slate-500">Đang chuẩn bị giao diện...</span>
+  </div>
+);
 
 export const MainLayout: React.FC = () => {
   const {
@@ -55,33 +65,79 @@ export const MainLayout: React.FC = () => {
 
   const renderCurrentView = () => {
     if (!hasCompletedOnboarding) {
-      return <OnboardingWizardView />;
+      return (
+        <ErrorBoundary fallbackTitle="Không thể tải hướng dẫn bắt đầu">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <OnboardingWizardView />
+          </Suspense>
+        </ErrorBoundary>
+      );
     }
 
     switch (currentView) {
       case 'speaking_ai':
-        return <SpeakingAIView />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Speaking AI (Alex Companion)">
+            <SpeakingAIView />
+          </ErrorBoundary>
+        );
       case 'conversation':
       case 'ielts':
       case 'scratchpad':
       case 'vocab_bank':
-        return <VoiceStage />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Phòng luyện nói (Voice Stage)">
+            <VoiceStage />
+          </ErrorBoundary>
+        );
       case 'pronunciation':
-        return <PronunciationLabView />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Phòng phát âm (Pronunciation Lab)">
+            <Suspense fallback={<ViewLoadingFallback />}>
+              <PronunciationLabView />
+            </Suspense>
+          </ErrorBoundary>
+        );
       case 'settings':
-        return <SettingsView />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Cài đặt">
+            <Suspense fallback={<ViewLoadingFallback />}>
+              <SettingsView />
+            </Suspense>
+          </ErrorBoundary>
+        );
       case 'raw_data':
         return (
           <AdminRouteGuard>
-            <RawDataStudioView />
+            <ErrorBoundary fallbackTitle="Lỗi kết xuất Raw Data Studio">
+              <Suspense fallback={<ViewLoadingFallback />}>
+                <RawDataStudioView />
+              </Suspense>
+            </ErrorBoundary>
           </AdminRouteGuard>
         );
       case 'progress':
-        return <ProgressDashboardView />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Biểu đồ tiến độ">
+            <Suspense fallback={<ViewLoadingFallback />}>
+              <ProgressDashboardView />
+            </Suspense>
+          </ErrorBoundary>
+        );
       case 'profile':
-        return <ProfileView />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Hồ sơ người dùng">
+            <Suspense fallback={<ViewLoadingFallback />}>
+              <ProfileView />
+            </Suspense>
+          </ErrorBoundary>
+        );
       default:
-        return <VoiceStage />;
+        return (
+          <ErrorBoundary fallbackTitle="Lỗi kết xuất Phòng luyện nói">
+            <VoiceStage />
+          </ErrorBoundary>
+        );
     }
   };
 
@@ -116,7 +172,9 @@ export const MainLayout: React.FC = () => {
           {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
           {hasCompletedOnboarding && currentView === 'conversation' && !rightPanelCollapsed && (
             <div className="p-4 pl-0 hidden lg:block h-full overflow-hidden">
-              <RightControlPanel />
+              <ErrorBoundary fallbackTitle="Lỗi kết xuất Bảng điều khiển">
+                <RightControlPanel />
+              </ErrorBoundary>
             </div>
           )}
 

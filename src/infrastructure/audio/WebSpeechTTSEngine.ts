@@ -252,6 +252,36 @@ export class WebSpeechTTSEngine {
     }
   }
 
+  /**
+   * Cleans text before sending to SpeechSynthesisUtterance.
+   * Strips markdown symbols (#, *, _, `, ~), IPA phonetics (/.../), and HTML tags
+   * so the AI voice never reads aloud formatting syntax.
+   */
+  public static cleanTextForTTS(text: string): string {
+    if (!text) return '';
+    return text
+      // Strip Markdown headings, bold, italics, strikethrough
+      .replace(/#{1,6}\s+/g, '')
+      .replace(/\*{1,3}(.*?)\*{1,3}/g, '$1')
+      .replace(/_{1,3}(.*?)_{1,3}/g, '$1')
+      .replace(/`{1,3}(.*?)(`{1,3}|$)/gs, '$1')
+      .replace(/~~(.*?)~~/g, '$1')
+      // Strip Markdown links [text](url) -> keep text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Strip HTML tags
+      .replace(/<[^>]+>/g, '')
+      // Strip phonetic transcriptions inside slashes or brackets
+      .replace(/\/[^/\n]{2,30}\//g, '')
+      .replace(/\[[^\]\n]{2,30}\]/g, '')
+      // Strip Markdown bullet points at line starts
+      .replace(/^\s*[-*•+]\s+/gm, '')
+      // Strip leftover formatting symbols
+      .replace(/[*_#`~|]/g, '')
+      // Collapse whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   public speak(
     text: string,
     options?: {
@@ -270,7 +300,7 @@ export class WebSpeechTTSEngine {
 
     this.stop();
 
-    const cleanText = text.trim();
+    const cleanText = WebSpeechTTSEngine.cleanTextForTTS(text);
     if (!cleanText) {
       options?.onEnd?.();
       return;

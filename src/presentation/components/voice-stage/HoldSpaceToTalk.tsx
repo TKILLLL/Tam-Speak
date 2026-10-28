@@ -28,7 +28,6 @@ const RANDOM_STARTER_TOPICS = [
 export const HoldSpaceToTalk: React.FC = () => {
   const {
     setOrbState,
-    setAudioLevel,
     isAutoVadEnabled,
     setIsAutoVadEnabled,
     toggleAutoVad,
@@ -59,13 +58,11 @@ export const HoldSpaceToTalk: React.FC = () => {
   const audioAnalyzer = useAudioAnalyzer();
   const transcriptBufferRef = useRef('');
   const isHoldingRef = useRef(false);
-
-  // Sync real-time audio amplitude to store for Glowing Orb
-  useEffect(() => {
-    if (audioAnalyzer.isListening) {
-      setAudioLevel(audioAnalyzer.audioLevel);
-    }
-  }, [audioAnalyzer.audioLevel, audioAnalyzer.isListening, setAudioLevel]);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const currentSessionIdRef = useRef<string>(
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`
+  );
+  const lastReplayTimeRef = useRef<number>(0);
 
   const startVoiceInput = useCallback(async () => {
     if (isHoldingRef.current) return;
@@ -152,6 +149,11 @@ export const HoldSpaceToTalk: React.FC = () => {
 
       // 5. Start Web Speech STT
       transcriptBufferRef.current = '';
+      if (activeAbortControllerRef.current) {
+        activeAbortControllerRef.current.abort();
+        activeAbortControllerRef.current = null;
+      }
+      currentSessionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '';
       setLiveSpeechTranscript('');
       container.speechSTTEngine.start({
         onUpdate: (finalText, interimText) => {
@@ -168,6 +170,11 @@ export const HoldSpaceToTalk: React.FC = () => {
       setOrbState('idle');
       setIsHolding(false);
       isHoldingRef.current = false;
+      if (activeAbortControllerRef.current) {
+        activeAbortControllerRef.current.abort();
+        activeAbortControllerRef.current = null;
+      }
+      currentSessionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '';
       setLiveSpeechTranscript('');
       if (err?.name === 'NotAllowedError' || err?.message?.toLowerCase().includes('permission')) {
         alert('Microphone permission was denied. Please allow microphone access in your browser settings to practice speaking.');
@@ -233,13 +240,21 @@ export const HoldSpaceToTalk: React.FC = () => {
     }
     spokenTranscript = validation.cleanedText;
 
-    // 4. Mistakes array to be populated dynamically by real LLM Examiner evaluation
-    const detectedMistakes: Array<{
-      word: string;
-      reason: string;
-      ipa: string;
-      suggestedAlternative: string;
-    }> = [];
+    // 4. Optimistic UI: Append User Dialogue Turn immediately (0ms latency feedback)
+    const userTurnId = `turn-user-${Date.now()}`;
+    const userTurn: DialogueTurn = {
+      id: userTurnId,
+      speaker: 'user',
+      text: spokenTranscript,
+      timestampSeconds: Math.round(actualDurationSeconds),
+      audioBlobId: recResult?.recordingId,
+      audioUrl,
+      actualDurationSeconds,
+      hesitationsDetected: analyzerStats.hesitations.length,
+      wpm: Math.round(analyzerStats.wpm),
+      mistakes: [],
+    };
+    addDialogueTurn(userTurn);
 
     // 5. Plan next question dynamically using AI (zero static question bank data)
     let plannedNextQuestion = '';
@@ -252,13 +267,11 @@ export const HoldSpaceToTalk: React.FC = () => {
         if (nextIdx < 3) {
           setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
         } else {
-          // Completed Part 1 -> Transition to Part 2 Cue Card dynamically
           setActivePart('part2');
           setMockTestProgress({ ...currentMock, currentPart: 2, questionIndex: 0 });
           plannedNextQuestion = `Now let us proceed to Part 2: Individual Long Turn. Your topic is: "${activeTopicTitle || 'Your memorable experience'}". Please describe a significant moment related to this topic, who was with you, what occurred, and why it influenced you. You have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press the microphone button to begin!`;
         }
       } else if (currentMock.currentPart === 2) {
-        // Completed Part 2 -> Transition to Part 3 Analytical Discussion dynamically
         setActivePart('part3');
         setMockTestProgress({ ...currentMock, currentPart: 3, questionIndex: 0 });
         plannedNextQuestion = `Thank you. Now let us move on to Part 3: Two-Way Analytical Discussion on "${activeTopicTitle || 'this topic'}". How do you see the broader societal impact of this issue developing over the next decade?`;
@@ -267,7 +280,6 @@ export const HoldSpaceToTalk: React.FC = () => {
         if (nextIdx < 3) {
           setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
         } else {
-          // Full Mock completed!
           plannedNextQuestion = 'Thank you very much. That concludes your Full IELTS Speaking Mock Test. Let us analyze your comprehensive band rating and detailed feedback now.';
           shouldAutoTriggerScoring = true;
           setMockTestProgress(null);
@@ -275,7 +287,15 @@ export const HoldSpaceToTalk: React.FC = () => {
       }
     }
 
-    // 6. Call real Gemini AI Examiner Turn Evaluation
+    // 6. Network Race Condition Guard: Track current turn session ID & abort previous in-flight requests
+    const turnSessionId = currentSessionIdRef.current;
+    if (activeAbortControllerRef.current) {
+      activeAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    activeAbortControllerRef.current = abortController;
+
+    // 7. Call real Gemini AI Examiner Turn Evaluation
     try {
       const topicName = activeTopicTitle || activeTopic?.title || 'Daily Conversation';
       const promptToEvaluate = currentExaminerPrompt || lastAIMessage || 'Introduce yourself';
@@ -289,7 +309,19 @@ export const HoldSpaceToTalk: React.FC = () => {
         partName: activePart,
       });
 
+      // Async Race Condition Check: If user switched topic or view while AI was formulating response, drop result safely
+      if (turnSessionId !== currentSessionIdRef.current) {
+        return;
+      }
+
       // Save any phonetic mistakes identified by AI into Pronunciation Lab
+      const detectedMistakes: Array<{
+        word: string;
+        reason: string;
+        ipa: string;
+        suggestedAlternative: string;
+      }> = [];
+
       if (turnResult.mistakes && turnResult.mistakes.length > 0) {
         turnResult.mistakes.forEach((m) => {
           if (!detectedMistakes.some((d) => d.word.toLowerCase() === m.word.toLowerCase())) {
@@ -310,22 +342,6 @@ export const HoldSpaceToTalk: React.FC = () => {
           }
         });
       }
-
-      // 7. Append User Dialogue Turn to Session Store with suggested upgrade
-      const userTurn: DialogueTurn = {
-        id: `turn-user-${Date.now()}`,
-        speaker: 'user',
-        text: spokenTranscript,
-        timestampSeconds: Math.round(actualDurationSeconds),
-        audioBlobId: recResult?.recordingId,
-        audioUrl,
-        actualDurationSeconds,
-        hesitationsDetected: analyzerStats.hesitations.length,
-        wpm: Math.round(analyzerStats.wpm),
-        mistakes: detectedMistakes,
-        suggestedUpgrade: turnResult.suggestedUpgrade,
-      };
-      addDialogueTurn(userTurn);
 
       // 8. Append AI Dialogue Turn to Session Store
       const replyText = `${turnResult.feedbackTransition} ${turnResult.nextQuestion}`.trim();
@@ -383,7 +399,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     user,
   ]);
 
-  // Global Keyboard Shortcuts (Space, R, H)
+  // Global Keyboard Shortcuts (Space, R, H) & Window Focus Guards
   useEffect(() => {
     const isTypingInInput = (target: HTMLElement | null): boolean => {
       if (!target) return false;
@@ -414,6 +430,9 @@ export const HoldSpaceToTalk: React.FC = () => {
         }
       } else if (e.code === 'KeyR' && !e.repeat) {
         e.preventDefault();
+        const now = Date.now();
+        if (now - lastReplayTimeRef.current < 300) return;
+        lastReplayTimeRef.current = now;
         const rBtn = document.querySelector('button[title*="Replay"]') as HTMLButtonElement | null;
         rBtn?.click();
       } else if (e.code === 'KeyH' && !e.repeat) {
@@ -436,12 +455,29 @@ export const HoldSpaceToTalk: React.FC = () => {
       }
     };
 
+    // Prevent stuck "Recording" state when Alt+Tabbing or clicking out of browser
+    const handleBlur = () => {
+      if (isHoldingRef.current) {
+        stopVoiceInput();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && isHoldingRef.current) {
+        stopVoiceInput();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [startVoiceInput, stopVoiceInput, toggleHideLastMessage]);
 
@@ -462,6 +498,11 @@ export const HoldSpaceToTalk: React.FC = () => {
       container.speechSTTEngine.abort();
       audioAnalyzer.stopAnalyzing(0);
       setIsAutoVadEnabled(false);
+      if (activeAbortControllerRef.current) {
+        activeAbortControllerRef.current.abort();
+        activeAbortControllerRef.current = null;
+      }
+      currentSessionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '';
       setLiveSpeechTranscript('');
     };
   }, [audioAnalyzer, setIsAutoVadEnabled, setLiveSpeechTranscript]);
