@@ -1,42 +1,51 @@
 -- ==============================================================================
--- TAMSPEAK PRODUCTION DATABASE SCHEMA (POSTGRESQL 3NF + ROW LEVEL SECURITY)
--- Application: TamSpeak ("Speak Like a Native")
--- Architecture: Zero-Trust Multi-Tenant Isolation (Anti-IDOR via auth.uid())
+-- TAMSPEAK COMPLETE ALL-IN-ONE DATABASE SCHEMA & ZERO-TRUST RLS SETUP
+-- Target: Google Cloud / Supabase PostgreSQL Database
+-- Purpose: Creates all tables, types, triggers, and Row Level Security (RLS) policies
+-- Safe & Idempotent: Can be run on fresh databases or existing installations.
 -- ==============================================================================
 
--- Enable UUID extension if not already enabled
+-- 0. Enable UUID generation extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ==============================================================================
--- 1. ENUM TYPES
+-- 1. ENUM TYPES (Idempotent creation)
 -- ==============================================================================
-CREATE TYPE practice_mode AS ENUM (
-  'ielts_part1',
-  'ielts_part2',
-  'ielts_part3',
-  'ielts_full_mock',
-  'daily_conversation',
-  'custom_roleplay',
-  'pronunciation_lab',
-  'placement_test'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'practice_mode') THEN
+    CREATE TYPE practice_mode AS ENUM (
+      'ielts_part1',
+      'ielts_part2',
+      'ielts_part3',
+      'ielts_full_mock',
+      'daily_conversation',
+      'custom_roleplay',
+      'pronunciation_lab',
+      'placement_test'
+    );
+  END IF;
 
-CREATE TYPE skill_level AS ENUM (
-  'a2',
-  'b1',
-  'b2',
-  'c1',
-  'c2',
-  'unrated'
-);
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'skill_level') THEN
+    CREATE TYPE skill_level AS ENUM ('a2', 'b1', 'b2', 'c1', 'c2', 'unrated');
+  ELSE
+    BEGIN
+      ALTER TYPE skill_level ADD VALUE IF NOT EXISTS 'unrated';
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
+    END;
+  END IF;
 
-CREATE TYPE ai_provider AS ENUM (
-  'gemini_pro',
-  'gemini_flash',
-  'gemini_flash_lite',
-  'groq',
-  'openrouter'
-);
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ai_provider') THEN
+    CREATE TYPE ai_provider AS ENUM (
+      'gemini_pro',
+      'gemini_flash',
+      'gemini_flash_lite',
+      'groq',
+      'openrouter'
+    );
+  END IF;
+END $$;
 
 -- ==============================================================================
 -- 2. TRIGGER FUNCTION: update_updated_at_column
@@ -50,17 +59,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==============================================================================
--- 3. TABLES (3NF NORMALIZATION)
+-- 3. CREATE TABLES IF NOT EXIST
 -- ==============================================================================
 
--- 3.1 User Profiles (Mirrors auth.users)
-CREATE TABLE IF NOT EXISTS profiles (
+-- 3.1 Profiles Table (Mirrors auth.users)
+CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT UNIQUE NOT NULL,
   display_name TEXT,
   avatar_url TEXT,
   target_band NUMERIC(2,1) DEFAULT 7.5 CHECK (target_band >= 0.0 AND target_band <= 9.0),
-  current_level skill_level DEFAULT 'b2',
+  current_level skill_level DEFAULT 'unrated',
   streak_days INTEGER DEFAULT 0 CHECK (streak_days >= 0),
   last_practice_date DATE,
   total_practice_minutes INTEGER DEFAULT 0 CHECK (total_practice_minutes >= 0),
@@ -69,10 +78,9 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 -- 3.2 User Encrypted API Keys (Zero-Trust Cryptographic Vault Storage)
--- Plaintext is NEVER stored. Data contains AES-GCM 256-bit ciphertext, IV, and PBKDF2 salt.
-CREATE TABLE IF NOT EXISTS user_encrypted_keys (
+CREATE TABLE IF NOT EXISTS public.user_encrypted_keys (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   provider ai_provider NOT NULL,
   key_alias TEXT NOT NULL,
   encrypted_ciphertext TEXT NOT NULL,
@@ -85,9 +93,9 @@ CREATE TABLE IF NOT EXISTS user_encrypted_keys (
 );
 
 -- 3.3 Custom & Curated Speaking Topics
-CREATE TABLE IF NOT EXISTS custom_topics (
+CREATE TABLE IF NOT EXISTS public.custom_topics (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   context_prompt TEXT NOT NULL,
@@ -101,10 +109,10 @@ CREATE TABLE IF NOT EXISTS custom_topics (
 );
 
 -- 3.4 Practice Sessions
-CREATE TABLE IF NOT EXISTS practice_sessions (
+CREATE TABLE IF NOT EXISTS public.practice_sessions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  topic_id UUID REFERENCES custom_topics(id) ON DELETE SET NULL,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  topic_id UUID REFERENCES public.custom_topics(id) ON DELETE SET NULL,
   mode practice_mode NOT NULL,
   duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
   overall_score NUMERIC(3,1) CHECK (overall_score >= 0.0 AND overall_score <= 9.0),
@@ -121,24 +129,22 @@ CREATE TABLE IF NOT EXISTS practice_sessions (
 );
 
 -- 3.5 Phoneme & Word Pronunciation Error Logs
-CREATE TABLE IF NOT EXISTS pronunciation_logs (
+CREATE TABLE IF NOT EXISTS public.pronunciation_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  session_id UUID NOT NULL REFERENCES practice_sessions(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  session_id UUID NOT NULL REFERENCES public.practice_sessions(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   word TEXT NOT NULL,
   expected_ipa TEXT NOT NULL,
-  spoken_ipa TEXT NOT NULL,
-  accuracy_score NUMERIC(4,2) NOT NULL CHECK (accuracy_score >= 0.0 AND accuracy_score <= 1.0),
-  error_type TEXT NOT NULL, -- 'missing_ending_sound', 'wrong_vowel', 'incorrect_stress', 'omission', 'substitution'
-  audio_timestamp_start NUMERIC(6,2),
-  audio_timestamp_end NUMERIC(6,2),
+  actual_ipa TEXT NOT NULL,
+  error_type TEXT NOT NULL,
+  accuracy_score NUMERIC(4,3) CHECK (accuracy_score >= 0.0 AND accuracy_score <= 1.0),
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
--- 3.6 Vocabulary Bank & Spaced Repetition (SM-2 / Leitner)
-CREATE TABLE IF NOT EXISTS vocabulary_bank (
+-- 3.6 Vocabulary Bank & Spaced Repetition (SM-2)
+CREATE TABLE IF NOT EXISTS public.vocabulary_bank (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   word TEXT NOT NULL,
   ipa TEXT,
   definition_en TEXT NOT NULL,
@@ -146,182 +152,122 @@ CREATE TABLE IF NOT EXISTS vocabulary_bank (
   example_sentence TEXT,
   collocations TEXT[] DEFAULT '{}' NOT NULL,
   synonyms TEXT[] DEFAULT '{}' NOT NULL,
-  mastery_level INTEGER DEFAULT 1 NOT NULL CHECK (mastery_level BETWEEN 1 AND 5),
+  mastery_level INTEGER DEFAULT 1 CHECK (mastery_level >= 1 AND mastery_level <= 5),
   next_review_date DATE DEFAULT CURRENT_DATE NOT NULL,
   last_reviewed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-  CONSTRAINT uq_user_vocab_word UNIQUE (user_id, word)
+  CONSTRAINT uq_user_word UNIQUE (user_id, word)
 );
 
 -- ==============================================================================
--- 4. INDEXES (OPTIMIZED FOR QUERY LATENCY)
+-- 4. ENABLE ROW LEVEL SECURITY (RLS) ON ALL TABLES
 -- ==============================================================================
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_encrypted_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.custom_topics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.practice_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pronunciation_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vocabulary_bank ENABLE ROW LEVEL SECURITY;
 
--- Composite Index for user practice sessions chronologically
-CREATE INDEX IF NOT EXISTS idx_sessions_user_created 
-  ON practice_sessions(user_id, created_at DESC);
-
--- GIN Index for searching dialogue JSON transcripts
-CREATE INDEX IF NOT EXISTS idx_sessions_dialogue_gin 
-  ON practice_sessions USING gin(transcript_dialogue);
-
--- GIN Index for querying detailed feedback JSON structure
-CREATE INDEX IF NOT EXISTS idx_sessions_feedback_gin 
-  ON practice_sessions USING gin(detailed_feedback);
-
--- Index for session pronunciation lookups
-CREATE INDEX IF NOT EXISTS idx_pronunciation_session 
-  ON pronunciation_logs(session_id, created_at ASC);
-
--- Index for user pronunciation lookups by word
-CREATE INDEX IF NOT EXISTS idx_pronunciation_user_word 
-  ON pronunciation_logs(user_id, word);
-
--- Composite Index for user vocabulary spaced repetition review
-CREATE INDEX IF NOT EXISTS idx_vocab_user_review 
-  ON vocabulary_bank(user_id, next_review_date ASC);
-
--- Index for custom topics by user
-CREATE INDEX IF NOT EXISTS idx_custom_topics_user 
-  ON custom_topics(user_id, created_at DESC);
+ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.user_encrypted_keys FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.custom_topics FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.practice_sessions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.pronunciation_logs FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.vocabulary_bank FORCE ROW LEVEL SECURITY;
 
 -- ==============================================================================
--- 5. TRIGGERS FOR UPDATED_AT
+-- 5. DROP OLD POLICIES
 -- ==============================================================================
-CREATE TRIGGER trigger_update_profiles_timestamp
-  BEFORE UPDATE ON profiles
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+DROP POLICY IF EXISTS "profiles_select_own" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert_own" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_own" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_delete_own" ON public.profiles;
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
 
-CREATE TRIGGER trigger_update_encrypted_keys_timestamp
-  BEFORE UPDATE ON user_encrypted_keys
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+DROP POLICY IF EXISTS "practice_sessions_select_own" ON public.practice_sessions;
+DROP POLICY IF EXISTS "practice_sessions_insert_own" ON public.practice_sessions;
+DROP POLICY IF EXISTS "practice_sessions_update_own" ON public.practice_sessions;
+DROP POLICY IF EXISTS "practice_sessions_delete_own" ON public.practice_sessions;
+DROP POLICY IF EXISTS "Users can view their own practice sessions" ON public.practice_sessions;
+DROP POLICY IF EXISTS "Users can insert their own practice sessions" ON public.practice_sessions;
+DROP POLICY IF EXISTS "Users can update their own practice sessions" ON public.practice_sessions;
 
-CREATE TRIGGER trigger_update_custom_topics_timestamp
-  BEFORE UPDATE ON custom_topics
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+DROP POLICY IF EXISTS "custom_topics_select_own_or_public" ON public.custom_topics;
+DROP POLICY IF EXISTS "custom_topics_insert_own" ON public.custom_topics;
+DROP POLICY IF EXISTS "custom_topics_update_own" ON public.custom_topics;
+DROP POLICY IF EXISTS "custom_topics_delete_own" ON public.custom_topics;
+DROP POLICY IF EXISTS "Users can view their own or public topics" ON public.custom_topics;
+DROP POLICY IF EXISTS "Users can insert their own topics" ON public.custom_topics;
+DROP POLICY IF EXISTS "Users can update their own topics" ON public.custom_topics;
 
-CREATE TRIGGER trigger_update_vocabulary_bank_timestamp
-  BEFORE UPDATE ON vocabulary_bank
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+DROP POLICY IF EXISTS "vocabulary_bank_select_own" ON public.vocabulary_bank;
+DROP POLICY IF EXISTS "vocabulary_bank_insert_own" ON public.vocabulary_bank;
+DROP POLICY IF EXISTS "vocabulary_bank_update_own" ON public.vocabulary_bank;
+DROP POLICY IF EXISTS "vocabulary_bank_delete_own" ON public.vocabulary_bank;
+DROP POLICY IF EXISTS "Users can view their own vocabulary" ON public.vocabulary_bank;
+DROP POLICY IF EXISTS "Users can insert their own vocabulary" ON public.vocabulary_bank;
+DROP POLICY IF EXISTS "Users can update their own vocabulary" ON public.vocabulary_bank;
 
--- ==============================================================================
--- 6. ROW LEVEL SECURITY (RLS) POLICIES - 100% TABLES ENABLED (ANTI-IDOR)
--- ==============================================================================
+DROP POLICY IF EXISTS "pronunciation_logs_select_own" ON public.pronunciation_logs;
+DROP POLICY IF EXISTS "pronunciation_logs_insert_own" ON public.pronunciation_logs;
+DROP POLICY IF EXISTS "pronunciation_logs_update_own" ON public.pronunciation_logs;
+DROP POLICY IF EXISTS "pronunciation_logs_delete_own" ON public.pronunciation_logs;
+DROP POLICY IF EXISTS "Users can view their own pronunciation logs" ON public.pronunciation_logs;
+DROP POLICY IF EXISTS "Users can insert their own pronunciation logs" ON public.pronunciation_logs;
 
--- Enable RLS on all tables
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_encrypted_keys ENABLE ROW LEVEL SECURITY;
-ALTER TABLE custom_topics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE practice_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pronunciation_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE vocabulary_bank ENABLE ROW LEVEL SECURITY;
-
--- 6.1 Policies for `profiles`
-CREATE POLICY "Users can view their own profile"
-  ON profiles FOR SELECT
-  USING (auth.uid() = id);
-
-CREATE POLICY "Users can update their own profile"
-  ON profiles FOR UPDATE
-  USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
-
-CREATE POLICY "Users can insert their own profile"
-  ON profiles FOR INSERT
-  WITH CHECK (auth.uid() = id);
-
--- 6.2 Policies for `user_encrypted_keys`
-CREATE POLICY "Users can view their own encrypted keys"
-  ON user_encrypted_keys FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own encrypted keys"
-  ON user_encrypted_keys FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own encrypted keys"
-  ON user_encrypted_keys FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own encrypted keys"
-  ON user_encrypted_keys FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 6.3 Policies for `custom_topics`
-CREATE POLICY "Users can view their own or public topics"
-  ON custom_topics FOR SELECT
-  USING (auth.uid() = user_id OR is_public = TRUE);
-
-CREATE POLICY "Users can insert their own topics"
-  ON custom_topics FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own topics"
-  ON custom_topics FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own topics"
-  ON custom_topics FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 6.4 Policies for `practice_sessions`
-CREATE POLICY "Users can view their own practice sessions"
-  ON practice_sessions FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own practice sessions"
-  ON practice_sessions FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own practice sessions"
-  ON practice_sessions FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own practice sessions"
-  ON practice_sessions FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 6.5 Policies for `pronunciation_logs`
-CREATE POLICY "Users can view their own pronunciation logs"
-  ON pronunciation_logs FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own pronunciation logs"
-  ON pronunciation_logs FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own pronunciation logs"
-  ON pronunciation_logs FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 6.6 Policies for `vocabulary_bank`
-CREATE POLICY "Users can view their own vocabulary"
-  ON vocabulary_bank FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own vocabulary"
-  ON vocabulary_bank FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own vocabulary"
-  ON vocabulary_bank FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own vocabulary"
-  ON vocabulary_bank FOR DELETE
-  USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "user_encrypted_keys_select_own" ON public.user_encrypted_keys;
+DROP POLICY IF EXISTS "user_encrypted_keys_insert_own" ON public.user_encrypted_keys;
+DROP POLICY IF EXISTS "user_encrypted_keys_update_own" ON public.user_encrypted_keys;
+DROP POLICY IF EXISTS "user_encrypted_keys_delete_own" ON public.user_encrypted_keys;
+DROP POLICY IF EXISTS "Users can view their own encrypted keys" ON public.user_encrypted_keys;
+DROP POLICY IF EXISTS "Users can insert their own encrypted keys" ON public.user_encrypted_keys;
 
 -- ==============================================================================
--- 7. AUTOMATED PROFILE PROVISIONING TRIGGER (AUTH.USERS -> PROFILES)
+-- 6. CREATE STRICT ANTI-IDOR ROW LEVEL SECURITY POLICIES
+-- ==============================================================================
+
+-- 6.1 Table: profiles
+CREATE POLICY "profiles_select_own" ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
+CREATE POLICY "profiles_insert_own" ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+CREATE POLICY "profiles_update_own" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "profiles_delete_own" ON public.profiles FOR DELETE TO authenticated USING (auth.uid() = id);
+
+-- 6.2 Table: practice_sessions
+CREATE POLICY "practice_sessions_select_own" ON public.practice_sessions FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "practice_sessions_insert_own" ON public.practice_sessions FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "practice_sessions_update_own" ON public.practice_sessions FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "practice_sessions_delete_own" ON public.practice_sessions FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- 6.3 Table: custom_topics
+CREATE POLICY "custom_topics_select_own_or_public" ON public.custom_topics FOR SELECT TO authenticated USING (auth.uid() = user_id OR is_public = TRUE);
+CREATE POLICY "custom_topics_insert_own" ON public.custom_topics FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "custom_topics_update_own" ON public.custom_topics FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "custom_topics_delete_own" ON public.custom_topics FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- 6.4 Table: vocabulary_bank
+CREATE POLICY "vocabulary_bank_select_own" ON public.vocabulary_bank FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "vocabulary_bank_insert_own" ON public.vocabulary_bank FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "vocabulary_bank_update_own" ON public.vocabulary_bank FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "vocabulary_bank_delete_own" ON public.vocabulary_bank FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- 6.5 Table: pronunciation_logs
+CREATE POLICY "pronunciation_logs_select_own" ON public.pronunciation_logs FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "pronunciation_logs_insert_own" ON public.pronunciation_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "pronunciation_logs_update_own" ON public.pronunciation_logs FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "pronunciation_logs_delete_own" ON public.pronunciation_logs FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- 6.6 Table: user_encrypted_keys
+CREATE POLICY "user_encrypted_keys_select_own" ON public.user_encrypted_keys FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "user_encrypted_keys_insert_own" ON public.user_encrypted_keys FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "user_encrypted_keys_update_own" ON public.user_encrypted_keys FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "user_encrypted_keys_delete_own" ON public.user_encrypted_keys FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- ==============================================================================
+-- 7. CLEAN NEW USER INITIALIZATION TRIGGER (AUTH.USERS -> PUBLIC.PROFILES)
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -364,12 +310,15 @@ BEGIN
     display_name = COALESCE(public.profiles.display_name, EXCLUDED.display_name),
     avatar_url = COALESCE(public.profiles.avatar_url, EXCLUDED.avatar_url),
     updated_at = NOW();
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Re-bind trigger to auth.users
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+SELECT 'TamSpeak All-in-One Database Schema & Anti-IDOR RLS initialized successfully.' AS status;
