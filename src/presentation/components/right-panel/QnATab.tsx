@@ -67,7 +67,8 @@ export const QnATab: React.FC = () => {
   const renderUserTextWithHighlights = (
     turnId: string,
     text: string,
-    mistakes?: Array<{ word: string; reason: string; ipa: string; suggestedAlternative: string }>
+    mistakes?: Array<{ word: string; reason: string; ipa: string; suggestedAlternative: string }>,
+    inferredSentence?: string
   ) => {
     if (!mistakes || mistakes.length === 0) {
       return (
@@ -85,7 +86,7 @@ export const QnATab: React.FC = () => {
     const tokens = text.split(/(\s+)/);
 
     return (
-      <div>
+      <div className="space-y-1.5">
         <p className="text-slate-800 leading-relaxed font-normal">
           {tokens.map((token, idx) => {
             const clean = token.toLowerCase().replace(/[^a-z]/g, '');
@@ -178,6 +179,18 @@ export const QnATab: React.FC = () => {
           })}
         </p>
 
+        {/* Reconstructed Intended Sentence if STT phonetic confusion or grammar slip occurred */}
+        {inferredSentence && inferredSentence.toLowerCase().trim() !== text.toLowerCase().trim() && (
+          <div className="p-2 rounded-xl bg-teal-50/80 border border-teal-200 text-[11px]">
+            <span className="font-bold text-teal-900 block text-[10px] uppercase tracking-wider mb-0.5">
+              Câu chuẩn người dùng định diễn đạt:
+            </span>
+            <p className="text-teal-950 font-medium italic">
+              "{inferredSentence}"
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center gap-1.5 text-[11px] text-rose-600 font-semibold mt-1">
           <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
           <span>
@@ -256,7 +269,7 @@ export const QnATab: React.FC = () => {
 
                 {/* Turn Text with Hide / Blur & Penalty Logic for AI */}
                 {isUser ? (
-                  renderUserTextWithHighlights(turn.id, turn.text, turn.mistakes)
+                  renderUserTextWithHighlights(turn.id, turn.text, turn.mistakes, turn.inferredIntendedSentence)
                 ) : (
                   <div className="relative">
                     <p
@@ -296,11 +309,7 @@ export const QnATab: React.FC = () => {
                         ? turn.actualDurationSeconds
                         : Math.max(2, turn.text.split(' ').length * 0.45)
                     }
-                    hesitations={
-                      turn.hesitationsDetected
-                        ? [{ startSeconds: 1.2, endSeconds: 2.1, durationSeconds: 0.9 }]
-                        : []
-                    }
+                    hesitations={turn.hesitationMarkers || []}
                   />
                 )}
 

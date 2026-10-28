@@ -45,6 +45,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     user,
     setRightPanelTab,
     addDialogueTurn,
+    updateDialogueTurn,
     addPronunciationMistake,
     setLiveSpeechTranscript,
     setMockTestProgress,
@@ -206,8 +207,9 @@ export const HoldSpaceToTalk: React.FC = () => {
       // Safe fallback
     }
 
-    // High-Precision Hybrid Fallback: Only call multimodal transcription if WebSpeech STT was empty
-    if (!spokenTranscript.trim() && recResult?.blob && container.aiGateway.transcribeAudio) {
+    // High-Precision Hybrid Speech Recognition (gemini-3.5-transcribe STT):
+    // Prioritize Gemini transcription from audio blob to accurately recognize Vietnamese names & accents
+    if (recResult?.blob && container.aiGateway.transcribeAudio) {
       try {
         const verifiedTranscript = await container.aiGateway.transcribeAudio(
           recResult.blob,
@@ -250,6 +252,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       audioUrl,
       actualDurationSeconds,
       hesitationsDetected: analyzerStats.hesitations.length,
+      hesitationMarkers: analyzerStats.hesitations,
       wpm: Math.round(analyzerStats.wpm),
       mistakes: [],
     };
@@ -342,6 +345,13 @@ export const HoldSpaceToTalk: React.FC = () => {
         });
       }
 
+      // Update the user turn with mistakes, inferredIntendedSentence, and suggestedUpgrade
+      updateDialogueTurn(userTurnId, {
+        mistakes: detectedMistakes,
+        inferredIntendedSentence: turnResult.inferredIntendedSentence || undefined,
+        suggestedUpgrade: turnResult.suggestedUpgrade || undefined,
+      });
+
       // 8. Append AI Dialogue Turn to Session Store
       const replyText = `${turnResult.feedbackTransition} ${turnResult.nextQuestion}`.trim();
       const aiTurn: DialogueTurn = {
@@ -382,6 +392,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     activeTopic,
     activeTopicTitle,
     addDialogueTurn,
+    updateDialogueTurn,
     addPronunciationMistake,
     audioAnalyzer,
     currentExaminerPrompt,

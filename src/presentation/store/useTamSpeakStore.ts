@@ -145,6 +145,7 @@ export interface TamSpeakState {
   dialogueTurns: DialogueTurn[];
   messages: DialogueTurn[];
   addDialogueTurn: (turn: DialogueTurn) => void;
+  updateDialogueTurn: (turnId: string, updates: Partial<DialogueTurn>) => void;
   clearDialogueTurns: () => void;
 
   // Topic Switch & Synchronization
@@ -236,7 +237,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
       currentExaminerPrompt: '',
       revealedTurnIds: [],
       penaltyToastMessage: null,
-      activeAIProvider: 'gemini-3-flash-preview',
+      activeAIProvider: 'gemini-3.8-flash',
       activeAIVoice: 'Aoede (US)',
       feedbackLanguage: 'en_vn',
       practiceMode: 'mock_test',
@@ -282,7 +283,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setAudioLevel: (audioLevel) => set({ audioLevel }),
   liveSpeechTranscript: '',
   setLiveSpeechTranscript: (liveSpeechTranscript) => set({ liveSpeechTranscript }),
-  activeAIProvider: 'Gemini 3.8 Flash',
+  activeAIProvider: 'gemini-3.8-flash',
   setActiveAIProvider: (activeAIProvider) => set({ activeAIProvider }),
   activeAIVoice: 'Aoede (US)',
   setActiveAIVoice: (activeAIVoice) => set({ activeAIVoice }),
@@ -318,6 +319,15 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
     set((state) => ({
       dialogueTurns: [...state.dialogueTurns, turn],
       messages: [...state.messages, turn],
+    })),
+  updateDialogueTurn: (turnId, updates) =>
+    set((state) => ({
+      dialogueTurns: state.dialogueTurns.map((turn) =>
+        turn.id === turnId ? { ...turn, ...updates } : turn
+      ),
+      messages: state.messages.map((turn) =>
+        turn.id === turnId ? { ...turn, ...updates } : turn
+      ),
     })),
   clearDialogueTurns: () => {
     // Revoke old audio URLs to prevent memory leak

@@ -20,13 +20,12 @@ export const DEFAULT_GEMINI_FALLBACK_KEY =
     : Buffer.from('QVEuQWI4Uk42SXJYUk9uWmUyd1JOTUluOGdUc211dlAxWFNmRVZXaHZ4UDhqWFZ6VEhfOWc=', 'base64').toString('utf-8');
 
 export const GEMINI_MODELS_FALLBACK_CHAIN = [
-  'gemini-3-flash-preview',
+  'gemini-3.8-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.5-flash',
-  'gemini-3.8-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest',
+  'gemini-4-argon',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
@@ -81,6 +80,7 @@ export interface ExaminerTurnResult {
   feedbackTransition: string;
   nextQuestion: string;
   suggestedUpgrade: string;
+  inferredIntendedSentence?: string;
   mistakes: Array<{
     word: string;
     ipa: string;
@@ -138,10 +138,10 @@ export class AIService {
     const {
       systemPrompt,
       messages,
-      temperature = 0.6,
+      temperature = 0.7,
       jsonMode = false,
-      maxOutputTokens = 300,
-      timeoutMs = 4_500,
+      maxOutputTokens = 1200,
+      timeoutMs = 12_000,
     } = params;
     const apiKey = this.getActiveApiKey();
 
@@ -149,24 +149,18 @@ export class AIService {
     const contents = normalizeGeminiContents(messages);
 
     const errors: string[] = [];
-    const overallDeadline = Date.now() + 6_000; // Hard ceiling of 6.0s (capped strictly at 5-7s)
+    const overallDeadline = Date.now() + 25_000;
 
     // Loop over fallback chain starting from activeModelIndex
     for (let i = 0; i < GEMINI_MODELS_FALLBACK_CHAIN.length; i++) {
       const remainingTime = overallDeadline - Date.now();
-      if (remainingTime < 800) {
+      if (remainingTime < 1000) {
         break; // Approaching deadline, prevent blocking user
       }
 
       const modelIndex = (this.activeModelIndex + i) % GEMINI_MODELS_FALLBACK_CHAIN.length;
       const modelName = GEMINI_MODELS_FALLBACK_CHAIN[modelIndex]!;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-
-      const isGemini25 = modelName.includes('2.5');
-      const thinkingLevel =
-        modelName === 'gemini-3-flash-preview' || modelName === 'gemini-3.6-flash'
-          ? 'minimal'
-          : 'low';
 
       const requestPayload: Record<string, unknown> = {
         contents,
@@ -176,8 +170,7 @@ export class AIService {
         generationConfig: {
           temperature,
           maxOutputTokens,
-          responseMimeType: jsonMode ? 'application/json' : 'text/plain',
-          ...(isGemini25 ? {} : { thinkingConfig: { thinkingLevel } }),
+          ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
         },
       };
 
@@ -190,7 +183,7 @@ export class AIService {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-goog-api-key': apiKey,
+            'X-goog-api-key': apiKey.trim(),
           },
           body: JSON.stringify(requestPayload),
           signal: controller.signal,
@@ -211,7 +204,7 @@ export class AIService {
         if (response.status === 400) {
           const errBody = await response.text().catch(() => '');
           const fatalErr = new Error(
-            `Cấu trúc yêu cầu không hợp lệ (HTTP 400): ${errBody.slice(0, 160)}`
+            `Cấu trúc yêu cầu không hợp lệ (HTTP 400 trên model ${modelName}): ${errBody.slice(0, 250)}`
           );
           (fatalErr as any).isFatalAuthOrClientError = true;
           throw fatalErr;
@@ -219,7 +212,8 @@ export class AIService {
 
         // If rate limit (429), temporary service overload (503), or model unavailable (404): rotate to next model
         if (response.status === 429 || response.status === 503 || response.status === 404) {
-          console.warn(`[Gemini REST Failover] Model ${modelName} returned HTTP ${response.status}. Switching to next model...`);
+          const errBody = await response.text().catch(() => '');
+          console.warn(`[Gemini REST Failover] Model ${modelName} returned HTTP ${response.status}: ${errBody.slice(0, 100)}. Switching to next model...`);
           errors.push(`${modelName} (${response.status})`);
           this.activeModelIndex = (modelIndex + 1) % GEMINI_MODELS_FALLBACK_CHAIN.length;
           useTamSpeakStore.getState().setActiveAIProvider(GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex]!);
@@ -332,8 +326,8 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.5,
         jsonMode: true,
-        maxOutputTokens: 450,
-        timeoutMs: 5_500,
+        maxOutputTokens: 800,
+        timeoutMs: 10_000,
       });
 
       const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
@@ -348,21 +342,11 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
 
       return parsed;
     } catch (err) {
-      console.warn('generateVocabHints error, returning smart fallback:', err);
+      console.warn('generateVocabHints error:', err);
       return {
-        activeKeywords: [
-          { word: 'profound', ipa: '/prəˈfaʊnd/', band: '8.0', meaningVi: 'sâu sắc, to lớn', example: 'This has had a profound impact on my perspective.' },
-          { word: 'indispensable', ipa: '/ˌɪndɪˈspensəbl/', band: '8.5', meaningVi: 'không thể thiếu', example: 'Clear communication is indispensable in this field.' },
-          { word: 'intricate', ipa: '/ˈɪntrɪkət/', band: '7.5', meaningVi: 'phức tạp, tinh xảo', example: 'There are intricate details worth considering.' },
-        ],
-        collocations: [
-          { phrase: 'gain deeper insight into', meaningVi: 'có được góc nhìn thấu đáo về', example: 'I gained deeper insight into the matter.' },
-          { phrase: 'play a pivotal role', meaningVi: 'đóng vai trò nòng cốt', example: 'Education plays a pivotal role in personal development.' },
-        ],
-        idioms: [
-          { idiom: 'food for thought', ipa: '/fuːd fər θɔːt/', meaningEn: 'something worth thinking about carefully', meaningVi: 'điều đáng để suy ngẫm', example: 'That gives me real food for thought.' },
-          { idiom: 'broaden one\'s horizon', ipa: '/ˈbrɔːdn wʌnz həˈraɪzn/', meaningEn: 'expand one\'s worldview and knowledge', meaningVi: 'mở rộng tầm hiểu biết', example: 'Traveling definitely broadens your horizon.' },
-        ],
+        activeKeywords: [],
+        collocations: [],
+        idioms: [],
       };
     }
   }
@@ -385,17 +369,19 @@ The candidate just answered your question.
 VIETNAMESE ENTITIES & CULTURE: The candidate is Vietnamese and may reference Vietnamese proper nouns, regional dishes, or place names (e.g., 'banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'). Recognize and treat these as valid natural proper nouns; do not incorrectly flag them as English mistakes.
 
 YOUR TASKS:
-1. "feedbackTransition": 1 concise sentence acknowledging the candidate's answer naturally (e.g. "Thank you, that offers an insightful perspective." or "That is a fascinating personal memory.")
-2. "nextQuestion": If a nextPlannedQuestion is provided, transition seamlessly into it. If not, formulate an engaging natural follow-up question.
+1. "feedbackTransition": 1 concise sentence acknowledging the candidate's answer naturally and specifically (e.g. "Thank you, that offers an insightful perspective." or "That is a fascinating personal memory.")
+2. "nextQuestion": If nextPlannedQuestion is provided, transition seamlessly into it. If not, formulate an engaging natural follow-up question directly related to what the candidate just explained.
 3. "suggestedUpgrade": Provide an upgraded Band 8.5+ native phrasing of their core idea.
-4. "mistakes": Identify any actual grammar or phonetic pronunciation confusions in the user's answer (ignore Vietnamese proper nouns).
-5. "speechAnalysis": Brief 1-sentence note on fluency or grammatical accuracy.
+4. "inferredIntendedSentence": If speech recognition slipped or candidate made grammatical/lexical mistakes, reconstruct what the candidate intended to say in a clean, natural, grammatically correct English sentence. If candidate's sentence is already natural and accurate without errors, return their exact sentence or null.
+5. "mistakes": Identify any actual grammar or phonetic pronunciation confusions in the candidate's answer (strictly ignore Vietnamese proper nouns).
+6. "speechAnalysis": Brief 1-sentence note on fluency or grammatical accuracy.
 
 Return ONLY valid JSON:
 {
   "feedbackTransition": "string",
   "nextQuestion": "string",
   "suggestedUpgrade": "string",
+  "inferredIntendedSentence": "string or null",
   "mistakes": [
     {
       "word": "string",
@@ -417,37 +403,79 @@ ${params.nextPlannedQuestion ? `Next Planned Question: "${params.nextPlannedQues
 
 Generate JSON evaluation and transition now.`;
 
-    try {
-      const raw = await this.generateContent({
-        systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-        temperature: 0.6,
-        jsonMode: true,
-        maxOutputTokens: 280,
-        timeoutMs: 4_500,
-      });
+    const raw = await this.generateContent({
+      systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      temperature: 0.6,
+      jsonMode: true,
+      maxOutputTokens: 1200,
+      timeoutMs: 15_000,
+    });
 
-      const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
-        feedbackTransition: 'Thank you for sharing your thoughts.',
-        nextQuestion: params.nextPlannedQuestion || 'Could you elaborate further on that aspect?',
-        suggestedUpgrade: 'From my personal viewpoint, this has consistently played an instrumental role in shaping my mindset.',
-        mistakes: [],
-        speechAnalysis: {
-          fluencyNote: 'Good natural cadence and responsiveness.',
-          grammarNote: 'Solid sentence structures.',
-        },
-      });
+    const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
+      feedbackTransition: 'Thank you for sharing your thoughts.',
+      nextQuestion: params.nextPlannedQuestion || 'Could you elaborate further on that aspect?',
+      suggestedUpgrade: 'From my personal viewpoint, this has consistently played an instrumental role in shaping my mindset.',
+      inferredIntendedSentence: params.userAnswer,
+      mistakes: [],
+      speechAnalysis: {
+        fluencyNote: 'Good natural cadence and responsiveness.',
+        grammarNote: 'Solid sentence structures.',
+      },
+    });
 
-      return parsed;
-    } catch (err) {
-      console.warn('generateExaminerTurn error:', err);
-      return {
-        feedbackTransition: 'Thank you. Moving along to our next point of discussion.',
-        nextQuestion: params.nextPlannedQuestion || 'Could you provide an example to illustrate that further?',
-        suggestedUpgrade: 'From an objective standpoint, I find this particularly intriguing.',
-        mistakes: [],
-      };
-    }
+    return parsed;
+  }
+
+  /**
+   * Generates a 100% dynamic, context-aware opening prompt / question for any topic
+   */
+  public async generateTopicOpening(params: {
+    topicTitle: string;
+    mode?: string;
+    part?: string;
+    aiRole?: string;
+    userRole?: string;
+  }): Promise<string> {
+    const isRoleplay = params.mode === 'roleplay';
+    const systemPrompt = isRoleplay
+      ? `You are roleplaying as: ${params.aiRole || 'an English conversational partner'}.
+The user is roleplaying as: ${params.userRole || 'a conversation participant'}.
+The topic is: "${params.topicTitle}".
+Start the conversation with an authentic, engaging in-character opening greeting and a natural opening question (maximum 2-3 sentences). Do not break character.`
+      : `You are an elite, certified IELTS Speaking Examiner conducting an official IELTS interview.
+Topic: "${params.topicTitle}" (${params.part || 'Part 1'}).
+Welcome the candidate warmly and ask an engaging, authentic first IELTS question for this topic (maximum 2 sentences).
+Do not use generic placeholders. Formulate a genuine, topic-specific opening question.`;
+
+    const raw = await this.generateContent({
+      systemPrompt,
+      messages: [{ role: 'user', content: `Please generate the opening line and question for topic "${params.topicTitle}".` }],
+      temperature: 0.7,
+      maxOutputTokens: 300,
+      timeoutMs: 10_000,
+    });
+
+    return raw.trim().replace(/^["']|["']$/g, '');
+  }
+
+  /**
+   * Generates a dynamic, friendly greeting from Alex (Speaking AI buddy)
+   */
+  public async generateAlexGreeting(userName?: string): Promise<string> {
+    const systemPrompt = `You are Alex, an energetic, friendly, and supportive English speaking practice companion.
+The user's name is ${userName || 'friend'}.
+Generate a warm, spontaneous, and conversational opening greeting to kick off today's speaking session. Ask a friendly, engaging question to invite them to start talking (1-2 sentences maximum).`;
+
+    const raw = await this.generateContent({
+      systemPrompt,
+      messages: [{ role: 'user', content: 'Generate opening greeting now.' }],
+      temperature: 0.8,
+      maxOutputTokens: 200,
+      timeoutMs: 8_000,
+    });
+
+    return raw.trim().replace(/^["']|["']$/g, '');
   }
 
   /**

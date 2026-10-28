@@ -17,9 +17,7 @@ import { SpeechNoiseFilter } from '../../../infrastructure/audio/SpeechNoiseFilt
 import { SharedAudioContext } from '../../../infrastructure/audio/SharedAudioContext';
 import { LiveSpeechDetectionBar } from '../voice-stage/LiveSpeechDetectionBar';
 import { container } from '../../../di/DIContainer';
-
-const INITIAL_FRIEND_GREETING =
-  "Hey! What's up? How is your day going so far?";
+import { aiService } from '../../../infrastructure/ai/AIService';
 
 const MiniGlowingOrb: React.FC<{ orbState: OrbState }> = ({
   orbState,
@@ -125,25 +123,34 @@ export const SpeakingAIView: React.FC = () => {
   useEffect(() => {
     isMountedRef.current = true;
 
-    // 1. Initial Greeting when entering view
+    // 1. 100% Dynamic Contextual AI Greeting via Gemini when entering view
     if (ephemeralMessages.length === 0) {
-      const initGreetingTurn: EphemeralTurn = {
-        id: `ephem-ai-init-${Date.now()}`,
-        speaker: 'ai',
-        text: INITIAL_FRIEND_GREETING,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      addEphemeralMessage(initGreetingTurn);
+      setOrbState('thinking');
+      aiService
+        .generateAlexGreeting(user?.displayName)
+        .then((greeting) => {
+          if (!isMountedRef.current) return;
+          const initGreetingTurn: EphemeralTurn = {
+            id: `ephem-ai-init-${Date.now()}`,
+            speaker: 'ai',
+            text: greeting,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          };
+          addEphemeralMessage(initGreetingTurn);
 
-      setOrbState('speaking');
-      container.speechTTSEngine.speak(INITIAL_FRIEND_GREETING, {
-        onEnd: () => {
+          setOrbState('speaking');
+          container.speechTTSEngine.speak(greeting, {
+            onEnd: () => {
+              if (isMountedRef.current) setOrbState('idle');
+            },
+            onError: () => {
+              if (isMountedRef.current) setOrbState('idle');
+            },
+          });
+        })
+        .catch(() => {
           if (isMountedRef.current) setOrbState('idle');
-        },
-        onError: () => {
-          if (isMountedRef.current) setOrbState('idle');
-        },
-      });
+        });
     }
 
     // 2. Unmount Cleanup: Stop TTS & STT, abort recordings, export mistakes, wipe ephemeral memory
@@ -258,8 +265,9 @@ export const SpeakingAIView: React.FC = () => {
       // safe fallback
     }
 
-    // High-Precision Hybrid Fallback: Only call multimodal transcription if WebSpeech STT was empty
-    if (!spokenTranscript.trim() && recResult?.blob && container.aiGateway.transcribeAudio) {
+    // High-Precision Hybrid Speech Recognition (gemini-3.5-transcribe STT):
+    // Prioritize Gemini transcription from audio blob to accurately recognize Vietnamese names & accents
+    if (recResult?.blob && container.aiGateway.transcribeAudio) {
       try {
         const verified = await container.aiGateway.transcribeAudio(
           recResult.blob,

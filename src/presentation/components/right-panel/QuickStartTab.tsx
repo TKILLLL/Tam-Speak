@@ -267,18 +267,25 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 6. 100% Dynamic AI Examiner initial prompts (Zero raw question bank data)
+    const calculatedPart = mapPresetToActivePart(preset.id, mode);
+    setActivePart(calculatedPart);
+    setActiveTopicTitle(title);
+
+    // 6. 100% Dynamic AI Examiner initial prompts via Gemini (Zero raw question bank data)
     let greeting = '';
-    if (mode === 'ielts_part1') {
-      greeting = `Welcome to Part 1 of your IELTS Speaking test. My name is your AI examiner. Today we will discuss "${title}". Could you tell me a little bit about yourself and your personal experience with this topic?`;
-      setMockTestProgress(null);
-    } else if (mode === 'ielts_part2') {
-      greeting = `Welcome to Part 2: Individual Long Turn. Your topic is: "${title}".\n\nYou should say:\n• What it is and when you first encountered it\n• How it has influenced your life or perspective\n• Who you share this interest or experience with\n• And explain why this aspect of "${title}" is particularly meaningful to you.\n\nYou have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press the microphone button to begin!`;
-      setMockTestProgress(null);
-    } else if (mode === 'ielts_part3') {
-      greeting = `Welcome to Part 3 of the IELTS Speaking test: Two-Way Analytical Discussion on "${title}". From a broader societal perspective, what do you consider to be the most significant impact of this issue on modern communities?`;
-      setMockTestProgress(null);
-    } else if (mode === 'ielts_full_mock') {
+    try {
+      greeting = await aiService.generateTopicOpening({
+        topicTitle: title,
+        mode,
+        part: calculatedPart,
+        aiRole,
+        userRole,
+      });
+    } catch {
+      greeting = `Welcome to our speaking practice session on "${title}". Could you please introduce your perspective on this topic?`;
+    }
+
+    if (mode === 'ielts_full_mock') {
       setMockTestProgress({
         topicTitle: title,
         currentPart: 1,
@@ -287,17 +294,10 @@ export const QuickStartTab: React.FC = () => {
         part2CueCard: null,
         part3Questions: [],
       });
-      greeting = `Welcome to your Full IELTS Speaking Mock Test. I will be your official AI examiner guiding you through Parts 1, 2, and 3. Let us begin with Part 1: "${title}". Could you introduce your perspective on this topic?`;
     } else {
-      greeting = preset.isCustom
-        ? `Hello! I will be acting as your ${aiRole}. In this scenario, you are the ${userRole} discussing "${title}". Whenever you are ready, press the microphone button and begin!`
-        : `Hi there! I am excited to practice speaking with you about "${title}". Whenever you are ready, press the microphone button and share your thoughts!`;
       setMockTestProgress(null);
     }
 
-    const calculatedPart = mapPresetToActivePart(preset.id, mode);
-    setActivePart(calculatedPart);
-    setActiveTopicTitle(title);
     setCurrentExaminerPrompt(greeting);
     setLastAIMessage(greeting);
 

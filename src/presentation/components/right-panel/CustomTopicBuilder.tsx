@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, Plus, X, Loader2, ShieldCheck } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
+import { aiService } from '../../../infrastructure/ai/AIService';
 import { SkillLevel } from '../../../domain/entities/User';
 
 interface CustomTopicBuilderProps {
@@ -10,7 +11,15 @@ interface CustomTopicBuilderProps {
 }
 
 export const CustomTopicBuilder: React.FC<CustomTopicBuilderProps> = ({ onBack, onTopicCreated }) => {
-  const { user, setActiveTopic, setOrbState, setLastAIMessage, addCustomRoleplayTopic } = useTamSpeakStore();
+  const {
+    user,
+    setActiveTopic,
+    setOrbState,
+    setLastAIMessage,
+    setCurrentExaminerPrompt,
+    addDialogueTurn,
+    addCustomRoleplayTopic,
+  } = useTamSpeakStore();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -70,9 +79,28 @@ export const CustomTopicBuilder: React.FC<CustomTopicBuilderProps> = ({ onBack, 
       // Activate topic in state
       setActiveTopic(topicDto);
 
-      // Start initial greeting
-      const greeting = `Hello! I will be acting as your ${aiRole}. In this scenario, you are the ${userRole}. Whenever you are ready, press and hold [Space] to introduce yourself!`;
+      // 100% Dynamic AI Roleplay initial greeting via Gemini
+      let greeting = '';
+      try {
+        greeting = await aiService.generateTopicOpening({
+          topicTitle: topicDto.title,
+          mode: 'roleplay',
+          aiRole: topicDto.aiRole,
+          userRole: topicDto.userRole,
+        });
+      } catch {
+        greeting = `Hello! I will be acting as your ${aiRole}. In this scenario, you are the ${userRole}. Whenever you are ready, press and hold [Space] to introduce yourself!`;
+      }
+
       setLastAIMessage(greeting);
+      setCurrentExaminerPrompt(greeting);
+      addDialogueTurn({
+        id: `turn-ai-greeting-${Date.now()}`,
+        speaker: 'ai',
+        text: greeting,
+        timestampSeconds: 0,
+      });
+
       setOrbState('speaking');
       container.speechTTSEngine.speak(greeting, {
         onEnd: () => setOrbState('idle'),

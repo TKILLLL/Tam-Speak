@@ -30,6 +30,12 @@ export interface DialogueTurn {
   actualDurationSeconds?: number;
   wpm?: number;
   hesitationsDetected?: number;
+  hesitationMarkers?: Array<{
+    startSeconds: number;
+    endSeconds: number;
+    durationSeconds: number;
+  }>;
+  inferredIntendedSentence?: string;
   ipaCorrections?: Array<{
     word: string;
     expectedIpa: string;

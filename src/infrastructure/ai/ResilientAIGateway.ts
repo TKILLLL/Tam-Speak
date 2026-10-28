@@ -98,23 +98,22 @@ export interface KeyPoolEntry {
 }
 
 export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
-  'gemini_3_flash_preview',
-  'gemini_3_6_flash',
-  'gemini_3_5_flash_lite',
-  'gemini_3_5_flash',
-  'gemini_3_8_flash',
-  'gemini_2_5_flash',
-  'gemini_2_5_pro',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest',
+  'gemini-4-argon',
 ] as const;
 
 /**
  * ResilientAIGateway
  * Production Google Gemini Native REST Gateway:
  * - Direct REST fetch with X-goog-api-key header
- * - Automatic Fallback Chain: gemini-3-flash-preview -> gemini-3.6-flash -> gemini-3.5-flash-lite -> gemini-3.5-flash -> gemini-3.8-flash -> gemini-2.5-flash -> gemini-2.5-pro
+ * - Official Model Chain: gemini-3.8-flash -> gemini-3.6-flash -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-flash-latest -> gemini-4-argon
+ * - Specialized STT: gemini-3.5-transcribe
  * - Automatic failover on 429/503/404 with instant badge update in Header
  * - Unified Key Resolution (BYOK from LocalStorage -> Env -> Secure Fallback)
- * - Ultra-low latency optimization with sub-2s responses capped strictly <= 5-7s
  */
 export class ResilientAIGateway implements IAIGateway {
   private readonly strategies: Map<string, IAIProviderStrategy> = new Map();
@@ -128,14 +127,10 @@ export class ResilientAIGateway implements IAIGateway {
       geminiKeys?: string[];
     }
   ) {
-    // Register active official Gemini Models in priority order (ultra-low latency first)
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_flash_preview', 'gemini-3-flash-preview'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_6_flash', 'gemini-3.6-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash_lite', 'gemini-3.5-flash-lite'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_5_flash', 'gemini-3.5-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_3_8_flash', 'gemini-3.8-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_flash', 'gemini-2.5-flash'));
-    this.registerStrategy(new GeminiProviderStrategy('gemini_2_5_pro', 'gemini-2.5-pro'));
+    // Register active official Gemini Models in priority order
+    DEFAULT_GEMINI_PROVIDER_CHAIN.forEach((model) => {
+      this.registerStrategy(new GeminiProviderStrategy(model, model));
+    });
 
     // Initialize Key Pool with unified active key
     const initialKey = getActiveGeminiApiKey();
@@ -221,49 +216,61 @@ export class ResilientAIGateway implements IAIGateway {
   }
 
   /**
-   * Gemini Multimodal Audio Transcription
+   * Gemini Multimodal Audio Transcription using specialized STT models
+   * (gemini-3.5-transcribe -> gemini-3.8-flash -> gemini-3.6-flash)
    */
   public async transcribeAudio(audioBlob: Blob, promptContext?: string): Promise<string> {
     const geminiKey = this.getActiveKey('gemini');
     try {
       const base64Audio = await this.blobToBase64(audioBlob);
       const mimeType = audioBlob.type || 'audio/webm';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent`;
+      const cleanMimeType = mimeType.split(';')[0] || 'audio/webm';
 
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': geminiKey,
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
+      const sttModels = ['gemini-3.5-transcribe', 'gemini-3.8-flash', 'gemini-3.6-flash'];
+
+      for (const model of sttModels) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-goog-api-key': geminiKey.trim(),
+            },
+            body: JSON.stringify({
+              contents: [
                 {
-                  text: `Accurately transcribe the spoken English words in this audio recording verbatim. Output ONLY the clean English transcript text without explanation or quotation marks. Context: ${promptContext || 'English conversation practice'}`,
-                },
-                {
-                  inlineData: {
-                    mimeType: mimeType.split(';')[0] || 'audio/webm',
-                    data: base64Audio,
-                  },
+                  role: 'user',
+                  parts: [
+                    {
+                      text: `Accurately transcribe the spoken English words in this audio recording verbatim. The speaker is Vietnamese practicing English: correctly transcribe English words and recognize Vietnamese proper nouns, regional locations, and cultural foods ('banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'). Output ONLY the clean verbatim English transcript text without commentary, quotation marks, or markdown fences. Context: ${promptContext || 'English conversation practice'}`,
+                    },
+                    {
+                      inlineData: {
+                        mimeType: cleanMimeType,
+                        data: base64Audio,
+                      },
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 250,
-          },
-        }),
-      });
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 600,
+              },
+            }),
+          });
 
-      if (resp.ok) {
-        const data = await resp.json();
-        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (candidateText && candidateText.trim().length > 0) {
-          return candidateText.trim().replace(/^["']|["']$/g, '');
+          if (resp.ok) {
+            const data = await resp.json();
+            const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (candidateText && candidateText.trim().length > 0) {
+              return candidateText.trim().replace(/^["']|["']$/g, '');
+            }
+          }
+        } catch (mErr) {
+          console.warn(`STT model ${model} attempt error:`, mErr);
         }
       }
     } catch (err) {
@@ -422,14 +429,14 @@ export class ResilientAIGateway implements IAIGateway {
     ];
 
     const { response, providerUsed } = await this.executeWithFallback(
-      DEFAULT_GEMINI_PROVIDER_CHAIN,
+      ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-flash-latest'],
       hardenedSystemPrompt,
       messages,
       true,
       0.3,
       {
-        maxOutputTokens: 850,
-        timeoutMs: 6_000,
+        maxOutputTokens: 1500,
+        timeoutMs: 15_000,
       }
     );
 
@@ -479,8 +486,8 @@ export class ResilientAIGateway implements IAIGateway {
         true,
         undefined,
         {
-          maxOutputTokens: 250,
-          timeoutMs: 4_500,
+          maxOutputTokens: 600,
+          timeoutMs: 10_000,
         }
       );
 
@@ -542,8 +549,8 @@ export class ResilientAIGateway implements IAIGateway {
         true,
         0.85,
         {
-          maxOutputTokens: 250,
-          timeoutMs: 4_500,
+          maxOutputTokens: 600,
+          timeoutMs: 10_000,
         }
       );
 

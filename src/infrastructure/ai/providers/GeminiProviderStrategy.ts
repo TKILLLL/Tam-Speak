@@ -23,20 +23,14 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
       apiKey,
       temperature = 0.7,
       jsonMode = false,
-      maxOutputTokens = 350,
-      timeoutMs = 4_500,
+      maxOutputTokens = 1200,
+      timeoutMs = 12_000,
     } = params;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent`;
 
     // Standardize multi-turn conversation format with strict user-first alternation
     const contents = normalizeGeminiContents(messages);
-
-    const isGemini25 = this.modelName.includes('2.5');
-    const thinkingLevel =
-      this.modelName === 'gemini-3-flash-preview' || this.modelName === 'gemini-3.6-flash'
-        ? 'minimal'
-        : 'low';
 
     const requestBody: Record<string, unknown> = {
       contents,
@@ -46,8 +40,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
       generationConfig: {
         temperature,
         maxOutputTokens,
-        responseMimeType: jsonMode ? 'application/json' : 'text/plain',
-        ...(isGemini25 ? {} : { thinkingConfig: { thinkingLevel } }),
+        ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
       },
     };
 
