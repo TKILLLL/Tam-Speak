@@ -29,7 +29,6 @@ export const HoldSpaceToTalk: React.FC = () => {
   const {
     setOrbState,
     isAutoVadEnabled,
-    setIsAutoVadEnabled,
     toggleAutoVad,
     activeTopic,
     setActiveTopic,
@@ -399,6 +398,17 @@ export const HoldSpaceToTalk: React.FC = () => {
     user,
   ]);
 
+  const audioAnalyzerRef = useRef(audioAnalyzer);
+  audioAnalyzerRef.current = audioAnalyzer;
+
+  const startVoiceInputRef = useRef(startVoiceInput);
+  const stopVoiceInputRef = useRef(stopVoiceInput);
+
+  useEffect(() => {
+    startVoiceInputRef.current = startVoiceInput;
+    stopVoiceInputRef.current = stopVoiceInput;
+  });
+
   // Global Keyboard Shortcuts (Space, R, H) & Window Focus Guards
   useEffect(() => {
     const isTypingInInput = (target: HTMLElement | null): boolean => {
@@ -426,7 +436,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       if (e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat && !isHoldingRef.current) {
-          startVoiceInput();
+          startVoiceInputRef.current();
         }
       } else if (e.code === 'KeyR' && !e.repeat) {
         e.preventDefault();
@@ -450,7 +460,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       if (e.code === 'Space') {
         e.preventDefault();
         if (isHoldingRef.current) {
-          stopVoiceInput();
+          stopVoiceInputRef.current();
         }
       }
     };
@@ -458,13 +468,13 @@ export const HoldSpaceToTalk: React.FC = () => {
     // Prevent stuck "Recording" state when Alt+Tabbing or clicking out of browser
     const handleBlur = () => {
       if (isHoldingRef.current) {
-        stopVoiceInput();
+        stopVoiceInputRef.current();
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden && isHoldingRef.current) {
-        stopVoiceInput();
+        stopVoiceInputRef.current();
       }
     };
 
@@ -479,13 +489,13 @@ export const HoldSpaceToTalk: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [startVoiceInput, stopVoiceInput, toggleHideLastMessage]);
+  }, [toggleHideLastMessage]);
 
   // Auto VAD Hands-Free Flow with Echo Lock
   const vadSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orbState = useTamSpeakStore((s) => s.orbState);
 
-  // Unmount Cleanup: strictly abort any ongoing recognition, silence timers and reset hot-mic
+  // Unmount Cleanup: strictly abort any ongoing recognition, silence timers and reset hot-mic ONCE on unmount
   useEffect(() => {
     return () => {
       if (vadSilenceTimerRef.current) {
@@ -493,19 +503,16 @@ export const HoldSpaceToTalk: React.FC = () => {
         vadSilenceTimerRef.current = null;
       }
       isHoldingRef.current = false;
-      setIsHolding(false);
       container.speechSTTEngine.stop();
       container.speechSTTEngine.abort();
-      audioAnalyzer.stopAnalyzing(0);
-      setIsAutoVadEnabled(false);
+      audioAnalyzerRef.current.stopAnalyzing(0);
       if (activeAbortControllerRef.current) {
         activeAbortControllerRef.current.abort();
         activeAbortControllerRef.current = null;
       }
       currentSessionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '';
-      setLiveSpeechTranscript('');
     };
-  }, [audioAnalyzer, setIsAutoVadEnabled, setLiveSpeechTranscript]);
+  }, []);
 
   useEffect(() => {
     if (!isAutoVadEnabled) {
@@ -519,10 +526,10 @@ export const HoldSpaceToTalk: React.FC = () => {
     // ECHO LOCK: Strictly forbid mic activation if AI is speaking or thinking
     if (orbState === 'speaking' || orbState === 'thinking') {
       if (isHoldingRef.current) {
-        stopVoiceInput();
+        stopVoiceInputRef.current();
       }
     }
-  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
+  }, [isAutoVadEnabled, orbState]);
 
   // VAD Auto-Submit when silence follows substantial speech
   useEffect(() => {
@@ -534,7 +541,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
       vadSilenceTimerRef.current = setTimeout(() => {
         if (isHoldingRef.current && orbState === 'listening') {
-          stopVoiceInput();
+          stopVoiceInputRef.current();
         }
       }, 2000);
     }
@@ -542,7 +549,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     return () => {
       if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
     };
-  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
+  }, [isAutoVadEnabled, orbState]);
 
   return (
     <div className="flex flex-col items-center gap-3 mt-8 select-none">

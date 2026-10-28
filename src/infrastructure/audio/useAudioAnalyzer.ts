@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { SharedAudioContext } from './SharedAudioContext';
 
 export interface HesitationMarker {
@@ -246,15 +246,28 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
     };
   }, []);
 
-  return {
-    isListening,
-    audioLevel,
-    frequencyData,
-    hesitations,
-    totalSilenceSeconds,
-    durationSeconds,
-    currentWpm,
-    startAnalyzing,
-    stopAnalyzing,
-  };
+  return useMemo(
+    () => ({
+      isListening,
+      audioLevel,
+      frequencyData,
+      hesitations,
+      totalSilenceSeconds,
+      durationSeconds,
+      currentWpm,
+      startAnalyzing,
+      stopAnalyzing,
+    }),
+    [
+      isListening,
+      audioLevel,
+      frequencyData,
+      hesitations,
+      totalSilenceSeconds,
+      durationSeconds,
+      currentWpm,
+      startAnalyzing,
+      stopAnalyzing,
+    ]
+  );
 }

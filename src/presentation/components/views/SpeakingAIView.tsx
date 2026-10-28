@@ -110,12 +110,18 @@ export const SpeakingAIView: React.FC = () => {
     typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ai-session-${Date.now()}`
   );
 
+  const audioAnalyzerRef = useRef(audioAnalyzer);
+  audioAnalyzerRef.current = audioAnalyzer;
+
+  const startVoiceInputRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const stopVoiceInputRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
   // Auto-scroll chat stream to the latest message
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [ephemeralMessages, orbState]);
 
-  // Initial Greeting & Lifecycle Ephemeral Memory Cleanup (Requirement 2 & 3 & 4)
+  // Initial Greeting & Lifecycle Ephemeral Memory Cleanup (Run ONCE on mount and unmount)
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -159,7 +165,7 @@ export const SpeakingAIView: React.FC = () => {
       container.speechTTSEngine.stop();
       container.speechSTTEngine.stop();
       container.speechSTTEngine.abort();
-      audioAnalyzer.stopAnalyzing(0);
+      audioAnalyzerRef.current.stopAnalyzing(0);
       setIsAutoVadEnabled(false);
 
       // Automatically push detected mistakes to Pronunciation & IPA Lab before clearing
@@ -182,7 +188,7 @@ export const SpeakingAIView: React.FC = () => {
       setOrbState('idle');
       setLiveSpeechTranscript('');
     };
-  }, [addEphemeralMessage, addPronunciationMistake, audioAnalyzer, clearEphemeralMessages, setIsAutoVadEnabled, setLiveSpeechTranscript, setOrbState]);
+  }, []);
 
   // Start Voice Input
   const startVoiceInput = useCallback(async () => {
@@ -386,6 +392,11 @@ export const SpeakingAIView: React.FC = () => {
     user?.id,
   ]);
 
+  useEffect(() => {
+    startVoiceInputRef.current = startVoiceInput;
+    stopVoiceInputRef.current = stopVoiceInput;
+  });
+
   // Global Keyboard listener for Space bar
   useEffect(() => {
     const isTypingInInput = (target: HTMLElement | null): boolean => {
@@ -407,7 +418,7 @@ export const SpeakingAIView: React.FC = () => {
       if (e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat && !isHoldingRef.current) {
-          startVoiceInput();
+          startVoiceInputRef.current();
         }
       }
     };
@@ -419,7 +430,7 @@ export const SpeakingAIView: React.FC = () => {
       if (e.code === 'Space') {
         e.preventDefault();
         if (isHoldingRef.current) {
-          stopVoiceInput();
+          stopVoiceInputRef.current();
         }
       }
     };
@@ -427,13 +438,13 @@ export const SpeakingAIView: React.FC = () => {
     // Prevent stuck "Recording" state when Alt+Tabbing or clicking out of browser
     const handleBlur = () => {
       if (isHoldingRef.current) {
-        stopVoiceInput();
+        stopVoiceInputRef.current();
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden && isHoldingRef.current) {
-        stopVoiceInput();
+        stopVoiceInputRef.current();
       }
     };
 
@@ -447,7 +458,7 @@ export const SpeakingAIView: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [startVoiceInput, stopVoiceInput]);
+  }, []);
 
   // Auto VAD Hands-Free Flow with Echo Lock
   const vadSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -464,10 +475,10 @@ export const SpeakingAIView: React.FC = () => {
     // ECHO LOCK: Strictly forbid mic activation if AI is speaking or thinking
     if (orbState === 'speaking' || orbState === 'thinking') {
       if (isHoldingRef.current) {
-        stopVoiceInput();
+        stopVoiceInputRef.current();
       }
     }
-  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
+  }, [isAutoVadEnabled, orbState]);
 
   // VAD Auto-Submit when silence follows substantial speech
   useEffect(() => {
@@ -479,7 +490,7 @@ export const SpeakingAIView: React.FC = () => {
       if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
       vadSilenceTimerRef.current = setTimeout(() => {
         if (isHoldingRef.current && orbState === 'listening') {
-          stopVoiceInput();
+          stopVoiceInputRef.current();
         }
       }, 2000);
     }
@@ -487,7 +498,7 @@ export const SpeakingAIView: React.FC = () => {
     return () => {
       if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
     };
-  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
+  }, [isAutoVadEnabled, orbState]);
 
   // Replay AI Audio
   const handleReplayAIMessage = (text: string) => {
