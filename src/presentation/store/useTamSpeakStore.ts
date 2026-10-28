@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { DialogueTurn } from '../../domain/entities/PracticeSession';
 import { PracticeSessionDTO, CustomTopicDTO, UserProfileDTO } from '../../application/dtos';
 import { GeneratedVocabHints } from '../../infrastructure/ai/AIService';
+import { UserStorageService } from '../../infrastructure/security/UserStorageService';
 
 export interface MockTestProgress {
   topicTitle: string;
@@ -80,51 +81,14 @@ export interface MistakeItem {
   createdAt: string;
 }
 
-const INITIAL_STARTER_MISTAKES: MistakeItem[] = [
-  {
-    id: 'mistake-init-1',
-    word: 'comfortable',
-    ipa: '/ˈkʌmftəbl/',
-    contextSentence: 'Living in my hometown is very comfortable and peaceful.',
-    errorReason: 'Omitted ending sound /bl/, read extra middle syllable (/kʌm-fɔː-teɪ-bl/)',
-    suggestedAlternative: 'pronounced /ˈkʌmftəbl/ with 3 crisp syllables',
-    topicTitle: 'Hometown and Memories',
-    mistakeCount: 2,
-    isMastered: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'mistake-init-2',
-    word: 'specifically',
-    ipa: '/spəˈsɪfɪkli/',
-    contextSentence: 'I specifically enjoy using AI to accelerate my language learning.',
-    errorReason: 'Weak S-cluster /sp/, incorrect primary stress placement',
-    suggestedAlternative: 'stress on second syllable /spə-ˈsɪ-fɪk-li/',
-    topicTitle: 'Technology and Daily Routine',
-    mistakeCount: 1,
-    isMastered: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'mistake-init-3',
-    word: 'thought',
-    ipa: '/θɔːt/',
-    contextSentence: 'I thought that artificial intelligence would replace routine tasks.',
-    errorReason: 'Read /tɔːt/ instead of voiceless dental fricative /θ/, missed final /t/',
-    suggestedAlternative: 'place tongue between teeth for /θ/, release crisp /t/',
-    topicTitle: 'Technology and Daily Routine',
-    mistakeCount: 3,
-    isMastered: false,
-    createdAt: new Date().toISOString(),
-  },
-];
-
 export interface TamSpeakState {
   // User & Auth
   user: UserProfileDTO | null;
   authModalOpen: boolean;
   setAuthModalOpen: (open: boolean) => void;
   setUser: (user: UserProfileDTO | null) => void;
+  resetAll: () => void;
+  loadUserDataForUser: (userId: string) => void;
 
   // Navigation & Layout
   currentView: NavigationView;
@@ -250,6 +214,48 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   authModalOpen: false,
   setAuthModalOpen: (open) => set({ authModalOpen: open }),
   setUser: (user) => set({ user }),
+
+  resetAll: () =>
+    set({
+      user: null,
+      activeSession: null,
+      activeTopic: null,
+      dialogueTurns: [],
+      messages: [],
+      ephemeralMessages: [],
+      aiVocabHints: null,
+      mockTestProgress: null,
+      pronunciationMistakes: [],
+      customRoleplayTopics: [],
+      hasCompletedOnboarding: false,
+      orbState: 'idle',
+      audioLevel: 0,
+      liveSpeechTranscript: '',
+      lastAIMessage: '',
+      currentExaminerPrompt: '',
+      revealedTurnIds: [],
+      penaltyToastMessage: null,
+      activeAIProvider: 'gemini-3-flash-preview',
+      activeAIVoice: 'Aoede (US)',
+      feedbackLanguage: 'en_vn',
+      practiceMode: 'mock_test',
+      targetLevel: 'b2',
+    }),
+
+  loadUserDataForUser: (userId: string) => {
+    const topics = UserStorageService.getUserCustomTopics(userId);
+    const completed = UserStorageService.getUserOnboardingCompleted(userId);
+    const settings = UserStorageService.getUserSettings(userId);
+    set({
+      customRoleplayTopics: topics,
+      hasCompletedOnboarding: completed,
+      ...(settings?.activeVoice ? { activeAIVoice: settings.activeVoice } : {}),
+      ...(settings?.activeAIProvider ? { activeAIProvider: settings.activeAIProvider } : {}),
+      ...(settings?.feedbackLanguage ? { feedbackLanguage: settings.feedbackLanguage } : {}),
+      ...(settings?.practiceMode ? { practiceMode: settings.practiceMode as any } : {}),
+      ...(settings?.targetLevel ? { targetLevel: settings.targetLevel as any } : {}),
+    });
+  },
 
   // Navigation & Layout (Default: 'conversation')
   currentView: 'conversation',
@@ -466,7 +472,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
     set({ topicChangeWarningModalOpen: false, pendingTopicSwitch: null }),
 
   // Pronunciation Lab Flashcards
-  pronunciationMistakes: INITIAL_STARTER_MISTAKES,
+  pronunciationMistakes: [],
   addPronunciationMistake: (mistake) =>
     set((state) => {
       const normalizedWord = mistake.word.trim().toLowerCase();
@@ -528,52 +534,26 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   feedbackLanguage: 'en_vn',
   setFeedbackLanguage: (feedbackLanguage) => set({ feedbackLanguage }),
 
-  // Custom Roleplay Topics
-  customRoleplayTopics: (() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        const saved = window.localStorage.getItem('tamspeak_custom_topics');
-        if (saved) return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
-    }
-    return [];
-  })(),
+  // Custom Roleplay Topics (Namespaced per User)
+  customRoleplayTopics: [],
   addCustomRoleplayTopic: (topic) =>
     set((state) => {
       const updated = [topic, ...state.customRoleplayTopics.filter((t) => t.id !== topic.id)];
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          window.localStorage.setItem('tamspeak_custom_topics', JSON.stringify(updated));
-        } catch {
-          // ignore
-        }
-      }
+      UserStorageService.setUserCustomTopics(updated, state.user?.id);
       return { customRoleplayTopics: updated };
     }),
   removeCustomRoleplayTopic: (id) =>
     set((state) => {
       const updated = state.customRoleplayTopics.filter((t) => t.id !== id);
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          window.localStorage.setItem('tamspeak_custom_topics', JSON.stringify(updated));
-        } catch {
-          // ignore
-        }
-      }
+      UserStorageService.setUserCustomTopics(updated, state.user?.id);
       return { customRoleplayTopics: updated };
     }),
 
-  // Onboarding
-  hasCompletedOnboarding:
-    typeof window !== 'undefined'
-      ? window.localStorage.getItem('tamspeak_onboarding_completed') === 'true'
-      : true,
+  // Onboarding (Namespaced per User)
+  hasCompletedOnboarding: false,
   setHasCompletedOnboarding: (completed: boolean) => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('tamspeak_onboarding_completed', String(completed));
-    }
+    const currentUserId = get().user?.id;
+    UserStorageService.setUserOnboardingCompleted(completed, currentUserId);
     set((state) => ({
       hasCompletedOnboarding: completed,
       user: state.user ? { ...state.user, hasCompletedOnboarding: completed } : null,

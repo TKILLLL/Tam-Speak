@@ -8,4 +8,5 @@ export interface IVocabRepository {
   save(item: VocabularyItem): Promise<void>;
   update(item: VocabularyItem): Promise<void>;
   delete(id: string, userId: string): Promise<void>;
+  clearMemoryCache?(): void;
 }

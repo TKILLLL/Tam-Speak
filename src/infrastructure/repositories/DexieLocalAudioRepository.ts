@@ -25,9 +25,12 @@ export class DexieLocalAudioRepository implements ILocalAudioRepository {
     });
   }
 
-  public async getAudio(id: string): Promise<StoredAudioPayload | null> {
+  public async getAudio(id: string, userId?: string): Promise<StoredAudioPayload | null> {
     const record = await dexieDb.audioRecordings.get(id);
     if (!record) return null;
+    if (userId && record.userId !== userId) {
+      return null;
+    }
 
     return {
       id: record.id,

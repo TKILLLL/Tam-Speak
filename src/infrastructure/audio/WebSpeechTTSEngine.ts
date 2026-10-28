@@ -1,3 +1,5 @@
+import { UserStorageService } from '../security/UserStorageService';
+
 export interface VoiceOption {
   id: string;
   name: string;
@@ -40,20 +42,12 @@ export class WebSpeechTTSEngine {
     return { ...this.manualPersonaVoiceOverrides };
   }
 
-  public loadSavedVoiceOverrides(): void {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        const saved = window.localStorage.getItem('tamspeak_voice_overrides');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && typeof parsed === 'object') {
-            this.manualPersonaVoiceOverrides = { ...parsed };
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
+  public loadSavedVoiceOverrides(userId?: string | null): void {
+    this.manualPersonaVoiceOverrides = UserStorageService.getUserVoiceOverrides(userId);
+  }
+
+  public resetOverrides(): void {
+    this.manualPersonaVoiceOverrides = {};
   }
 
   private startKeepAlive(): void {
@@ -221,15 +215,9 @@ export class WebSpeechTTSEngine {
     }
   }
 
-  public setManualVoiceOverride(persona: string, voiceName: string): void {
+  public setManualVoiceOverride(persona: string, voiceName: string, userId?: string | null): void {
     this.manualPersonaVoiceOverrides[persona] = voiceName;
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.setItem('tamspeak_voice_overrides', JSON.stringify(this.manualPersonaVoiceOverrides));
-      } catch {
-        // ignore
-      }
-    }
+    UserStorageService.setUserVoiceOverrides(this.manualPersonaVoiceOverrides, userId);
     if (this.activePersona === persona) {
       this.setActivePersona(persona);
     }

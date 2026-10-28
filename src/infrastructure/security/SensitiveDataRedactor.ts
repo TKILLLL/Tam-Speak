@@ -11,6 +11,10 @@ export class SensitiveDataRedactor {
       regex: /AIza[0-9A-Za-z\-_]{30,40}/g,
     },
     {
+      name: 'Google Gemini Express Key',
+      regex: /AQ\.[0-9A-Za-z\-_]{40,60}/g,
+    },
+    {
       name: 'Groq API Key',
       regex: /gsk_[a-zA-Z0-9]{48,64}/g,
     },

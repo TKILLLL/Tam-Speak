@@ -14,10 +14,13 @@ import {
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
-import { GEMINI_MODELS_FALLBACK_CHAIN } from '../../../infrastructure/ai/AIService';
+import { GEMINI_MODELS_FALLBACK_CHAIN, setPersonalApiKey, clearPersonalApiKey } from '../../../infrastructure/ai/AIService';
+import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
+import { SensitiveDataRedactor } from '../../../infrastructure/security/SensitiveDataRedactor';
 
 export const SettingsView: React.FC = () => {
   const {
+    user,
     activeAIVoice,
     setActiveAIVoice,
     activeAIProvider,
@@ -46,32 +49,30 @@ export const SettingsView: React.FC = () => {
   // 3. Vault & General Settings State
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Load existing settings from localStorage on mount
+  // Load existing settings from user-scoped storage on mount
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      // Load unified settings bundle
-      const savedBundle = window.localStorage.getItem('tamspeak_settings');
-      if (savedBundle) {
-        try {
-          const parsed = JSON.parse(savedBundle);
-          if (parsed.activeVoice) setActiveAIVoice(parsed.activeVoice);
-          if (parsed.activeAIProvider) setActiveAIProvider(parsed.activeAIProvider);
-          if (parsed.feedbackLanguage) setFeedbackLanguage(parsed.feedbackLanguage);
-          if (parsed.practiceMode) setPracticeMode(parsed.practiceMode);
-          if (parsed.targetLevel) setTargetLevel(parsed.targetLevel);
-        } catch {
-          // ignore
-        }
-      }
+    const currentUserId = user?.id || null;
 
-      // Load Gemini API Key
-      const savedGemini = window.localStorage.getItem('tamspeak_byok_gemini');
-      if (savedGemini) {
-        setGeminiKey(savedGemini);
-        container.aiGateway.setPersonalKey?.('gemini', savedGemini);
-      }
+    // Load unified settings bundle
+    const savedBundle = UserStorageService.getUserSettings(currentUserId);
+    if (savedBundle) {
+      if (savedBundle.activeVoice) setActiveAIVoice(savedBundle.activeVoice);
+      if (savedBundle.activeAIProvider) setActiveAIProvider(savedBundle.activeAIProvider);
+      if (savedBundle.feedbackLanguage) setFeedbackLanguage(savedBundle.feedbackLanguage);
+      if (savedBundle.practiceMode) setPracticeMode(savedBundle.practiceMode as any);
+      if (savedBundle.targetLevel) setTargetLevel(savedBundle.targetLevel as any);
     }
-  }, [setActiveAIProvider, setActiveAIVoice, setFeedbackLanguage, setPracticeMode, setTargetLevel]);
+
+    // Load Gemini API Key strictly for current user
+    const savedGemini = UserStorageService.getUserPersonalApiKey(currentUserId);
+    if (savedGemini && savedGemini.trim().length > 0) {
+      setGeminiKey(savedGemini.trim());
+      container.aiGateway.setPersonalKey?.('gemini', savedGemini.trim(), currentUserId);
+      setPersonalApiKey(savedGemini.trim());
+    } else {
+      setGeminiKey('');
+    }
+  }, [user?.id, setActiveAIProvider, setActiveAIVoice, setFeedbackLanguage, setPracticeMode, setTargetLevel]);
 
   // Subscribe to system voices loaded event
   useEffect(() => {
@@ -105,65 +106,65 @@ export const SettingsView: React.FC = () => {
 
       if (response.ok) {
         const trimmedKey = geminiKey.trim();
-        window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
-        container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
+        const currentUserId = user?.id || null;
+        UserStorageService.setUserPersonalApiKey(trimmedKey, currentUserId);
+        container.aiGateway.setPersonalKey?.('gemini', trimmedKey, currentUserId);
+        setPersonalApiKey(trimmedKey);
 
         setGeminiTestStatus({
           state: 'valid',
-          message: 'Valid API Key! Đã xác thực thành công và lưu vào Local Vault.',
+          message: 'Valid API Key! Đã xác thực thành công và lưu vào Local Vault của bạn.',
         });
         setStatusMessage('Đã tự động lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
         setTimeout(() => setStatusMessage(null), 3500);
       } else {
         const errorData = await response.json().catch(() => ({}));
+        const rawMsg = errorData?.error?.message || 'API Key không hợp lệ hoặc chưa được kích hoạt Generative Language API.';
         setGeminiTestStatus({
           state: 'invalid',
-          message: `Lỗi (${response.status}): ${
-            errorData?.error?.message || 'API Key không hợp lệ hoặc chưa được kích hoạt Generative Language API.'
-          }`,
+          message: `Lỗi (${response.status}): ${SensitiveDataRedactor.redactString(rawMsg)}`,
         });
       }
     } catch (err: any) {
+      const safeErrorMsg = SensitiveDataRedactor.redactString(err?.message || 'Không thể ping đến Gemini API.');
       setGeminiTestStatus({
         state: 'invalid',
-        message: `Lỗi kết nối mạng: ${err?.message || 'Không thể ping đến Gemini API.'}`,
+        message: `Lỗi kết nối mạng: ${safeErrorMsg}`,
       });
     }
   };
 
   const handleSaveAllSettings = () => {
     const trimmedKey = geminiKey.trim();
+    const currentUserId = user?.id || null;
+
     if (trimmedKey) {
-      window.localStorage.setItem('tamspeak_byok_gemini', trimmedKey);
-      container.aiGateway.setPersonalKey?.('gemini', trimmedKey);
+      UserStorageService.setUserPersonalApiKey(trimmedKey, currentUserId);
+      container.aiGateway.setPersonalKey?.('gemini', trimmedKey, currentUserId);
+      setPersonalApiKey(trimmedKey);
     }
 
     const voiceOverrides = container.speechTTSEngine.getManualVoiceOverrides();
-    try {
-      window.localStorage.setItem('tamspeak_voice_overrides', JSON.stringify(voiceOverrides));
-    } catch {
-      // ignore
-    }
+    UserStorageService.setUserVoiceOverrides(voiceOverrides, currentUserId);
 
     const settingsBundle = {
-      geminiKey: trimmedKey,
       activeVoice: activeAIVoice,
       activeAIProvider,
       feedbackLanguage,
       practiceMode,
       targetLevel,
-      voiceOverrides,
-      updatedAt: new Date().toISOString(),
     };
 
-    window.localStorage.setItem('tamspeak_settings', JSON.stringify(settingsBundle));
-    setStatusMessage('Đã lưu toàn bộ cấu hình cài đặt vào bộ nhớ thiết bị thành công!');
+    UserStorageService.setUserSettings(settingsBundle, currentUserId);
+    setStatusMessage('Đã lưu toàn bộ cấu hình cài đặt vào hồ sơ riêng của bạn thành công!');
     setTimeout(() => setStatusMessage(null), 3500);
   };
 
   const handleClearGemini = () => {
-    window.localStorage.removeItem('tamspeak_byok_gemini');
-    container.aiGateway.setPersonalKey?.('gemini', null);
+    const currentUserId = user?.id || null;
+    UserStorageService.clearUserPersonalApiKey(currentUserId);
+    container.aiGateway.setPersonalKey?.('gemini', null, currentUserId);
+    clearPersonalApiKey();
     setGeminiKey('');
     setGeminiTestStatus({ state: 'idle' });
     setStatusMessage('Đã xóa Gemini Key cá nhân. Hệ thống quay về hạn mức mặc định.');
@@ -182,7 +183,8 @@ export const SettingsView: React.FC = () => {
   };
 
   const handleVoiceOverrideChange = (persona: string, voiceName: string) => {
-    container.speechTTSEngine.setManualVoiceOverride(persona, voiceName);
+    const currentUserId = user?.id || null;
+    container.speechTTSEngine.setManualVoiceOverride(persona, voiceName, currentUserId);
     setStatusMessage(`Đã gắn giọng "${voiceName}" cho persona ${persona}`);
     setTimeout(() => setStatusMessage(null), 3000);
   };
@@ -270,7 +272,7 @@ export const SettingsView: React.FC = () => {
                   setGeminiKey(val);
                   setGeminiTestStatus({ state: 'idle' });
                 }}
-                placeholder="Nhập API Key Gemini của bạn..."
+                placeholder="Nhập Gemini API Key cá nhân của bạn (AIza... hoặc AQ.Ab8...)"
                 className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 font-mono text-xs focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-white"
               />
               <button

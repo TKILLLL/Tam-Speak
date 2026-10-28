@@ -3,6 +3,7 @@ import { X, Mail, Lock, Loader2 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { supabase, isSupabaseConfigured } from '../../../infrastructure/database/supabase/supabaseClient';
 import { container } from '../../../di/DIContainer';
+import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
 
 export const AuthModal: React.FC = () => {
   const { authModalOpen, setAuthModalOpen, setUser } = useTamSpeakStore();
@@ -39,18 +40,25 @@ export const AuthModal: React.FC = () => {
         if (error) throw error;
         if (data.user) {
           const userEmail = data.user.email || email;
-          const isAdmin = userEmail.toLowerCase().includes('tamphan') || data.user.user_metadata?.role === 'admin';
+          const lowerEmail = userEmail.toLowerCase();
+          const isAdmin =
+            lowerEmail.includes('tamphan') ||
+            lowerEmail.endsWith('@tamspeak.com') ||
+            data.user.user_metadata?.role === 'admin';
+          const cleanDisplayName = displayName.trim() || userEmail.split('@')[0] || 'Learner';
+
           setUser({
             id: data.user.id,
             email: userEmail,
-            displayName: displayName.trim() || 'Learner',
+            displayName: cleanDisplayName,
             avatarUrl: null,
             targetBand: 7.5,
-            currentLevel: 'b2',
-            streakDays: 1,
-            lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
+            currentLevel: 'unrated',
+            streakDays: 0,
+            lastPracticeDate: null,
             totalPracticeMinutes: 0,
             role: isAdmin ? 'admin' : 'user',
+            hasCompletedOnboarding: false,
           });
           setAuthModalOpen(false);
         }
@@ -63,22 +71,28 @@ export const AuthModal: React.FC = () => {
         if (error) throw error;
         if (data.user) {
           const userEmail = data.user.email || email;
-          const isAdmin = userEmail.toLowerCase().includes('tamphan') || data.user.user_metadata?.role === 'admin';
+          const lowerEmail = userEmail.toLowerCase();
+          const isAdmin =
+            lowerEmail.includes('tamphan') ||
+            lowerEmail.endsWith('@tamspeak.com') ||
+            data.user.user_metadata?.role === 'admin';
 
           try {
             const dbUser = await container.userRepository.findById(data.user.id);
             if (dbUser) {
+              const isCompleted = UserStorageService.getUserOnboardingCompleted(dbUser.id);
               setUser({
                 id: dbUser.id,
                 email: dbUser.email.getValue(),
                 displayName: dbUser.displayName,
                 avatarUrl: dbUser.avatarUrl,
                 targetBand: dbUser.targetBand.getValue(),
-                currentLevel: dbUser.currentLevel,
+                currentLevel: dbUser.currentLevel || 'unrated',
                 streakDays: dbUser.streakDays,
                 lastPracticeDate: dbUser.lastPracticeDate,
                 totalPracticeMinutes: dbUser.totalPracticeMinutes,
                 role: isAdmin || dbUser.role === 'admin' ? 'admin' : 'user',
+                hasCompletedOnboarding: isCompleted,
               });
               setAuthModalOpen(false);
               return;
@@ -87,17 +101,21 @@ export const AuthModal: React.FC = () => {
             console.warn('Could not load profile from DB:', profileErr);
           }
 
+          const fallbackDisplayName =
+            data.user.user_metadata?.display_name || userEmail.split('@')[0] || 'Learner';
+
           setUser({
             id: data.user.id,
             email: userEmail,
-            displayName: data.user.user_metadata?.display_name || email.split('@')[0] || 'Learner',
+            displayName: fallbackDisplayName,
             avatarUrl: data.user.user_metadata?.avatar_url || null,
             targetBand: 7.5,
-            currentLevel: 'b2',
-            streakDays: 1,
-            lastPracticeDate: new Date().toISOString().split('T')[0] ?? null,
+            currentLevel: 'unrated',
+            streakDays: 0,
+            lastPracticeDate: null,
             totalPracticeMinutes: 0,
             role: isAdmin ? 'admin' : 'user',
+            hasCompletedOnboarding: false,
           });
           setAuthModalOpen(false);
         }

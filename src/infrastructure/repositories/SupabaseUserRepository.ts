@@ -70,7 +70,7 @@ export class SupabaseUserRepository implements IUserRepository {
       displayName: row.display_name || 'Speaking Learner',
       avatarUrl: row.avatar_url,
       targetBand: row.target_band ? BandScore.fromRawAverage(row.target_band) : BandScore.create(7.5),
-      currentLevel: (row.current_level as SkillLevel) || 'b2',
+      currentLevel: (row.current_level as SkillLevel) || 'unrated',
       streakDays: row.streak_days ?? 0,
       lastPracticeDate: row.last_practice_date,
       totalPracticeMinutes: row.total_practice_minutes ?? 0,

@@ -10,6 +10,7 @@ import {
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
 import { DialogueTurn } from '../../../domain/entities/PracticeSession';
+import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
 
 interface DeterministicScoreInput {
   userTurns: DialogueTurn[];
@@ -218,7 +219,7 @@ export const ScoringTab: React.FC = () => {
         hesitationCount: totalHesitations,
         silenceDurations: [0.9, 1.2],
         contextTitle: activeTopic?.title || 'IELTS Speaking Practice',
-        targetLevel: user?.currentLevel || 'b2',
+        targetLevel: user?.currentLevel && user.currentLevel !== 'unrated' ? user.currentLevel : 'b2',
         dialogue: dialogueTurns,
       });
 
@@ -247,7 +248,7 @@ export const ScoringTab: React.FC = () => {
         };
         setUser(updatedUser);
         try {
-          localStorage.setItem('tamspeak_user_profile', JSON.stringify(updatedUser));
+          UserStorageService.setUserProfile(updatedUser, user.id);
         } catch {
           // ignore
         }
@@ -290,7 +291,7 @@ export const ScoringTab: React.FC = () => {
         };
         setUser(updatedUser);
         try {
-          localStorage.setItem('tamspeak_user_profile', JSON.stringify(updatedUser));
+          UserStorageService.setUserProfile(updatedUser, user.id);
         } catch {
           // ignore
         }

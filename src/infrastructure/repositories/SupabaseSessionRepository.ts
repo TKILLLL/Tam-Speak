@@ -9,6 +9,7 @@ import {
 } from '../../domain/entities/PracticeSession';
 import { BandScore } from '../../domain/value-objects/BandScore';
 import { SpeechMetrics } from '../../domain/value-objects/SpeechMetrics';
+import { UserStorageService } from '../security/UserStorageService';
 
 interface PracticeSessionRow {
   id: string;
@@ -36,17 +37,18 @@ export class SupabaseSessionRepository implements ISessionRepository {
     this.loadFromLocalStorage();
   }
 
-  private loadFromLocalStorage(): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
+  public clearMemoryCache(): void {
+    this.inMemorySessions.clear();
+  }
+
+  public loadFromLocalStorage(userId?: string): void {
+    if (typeof window === 'undefined') return;
     try {
-      const saved = window.localStorage.getItem('tamspeak_practice_sessions');
-      if (saved) {
-        const rows: PracticeSessionRow[] = JSON.parse(saved);
-        if (Array.isArray(rows)) {
-          for (const row of rows) {
-            const domainSession = this.mapToDomain(row);
-            this.inMemorySessions.set(domainSession.id, domainSession);
-          }
+      const rows = UserStorageService.getUserPracticeSessions(userId);
+      if (Array.isArray(rows)) {
+        for (const row of rows) {
+          const domainSession = this.mapToDomain(row);
+          this.inMemorySessions.set(domainSession.id, domainSession);
         }
       }
     } catch (err) {
@@ -54,11 +56,13 @@ export class SupabaseSessionRepository implements ISessionRepository {
     }
   }
 
-  private persistToLocalStorage(): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
+  private persistToLocalStorage(userId?: string): void {
+    if (typeof window === 'undefined') return;
     try {
-      const rows = Array.from(this.inMemorySessions.values()).map((s) => this.mapToRow(s));
-      window.localStorage.setItem('tamspeak_practice_sessions', JSON.stringify(rows));
+      const userSessions = Array.from(this.inMemorySessions.values())
+        .filter((s) => !userId || s.userId === userId)
+        .map((s) => this.mapToRow(s));
+      UserStorageService.setUserPracticeSessions(userSessions, userId);
     } catch (err) {
       console.warn('Failed to persist local sessions:', err);
     }
@@ -97,7 +101,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
 
   public async findRecentByUserId(userId: string, limit = 20): Promise<PracticeSession[]> {
     const memoryMatches = Array.from(this.inMemorySessions.values())
-      .filter((s) => s.userId === userId || userId === 'guest-user' || !s.userId)
+      .filter((s) => s.userId === userId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     if (!this.isValidUUID(userId)) {
@@ -124,7 +128,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
   public async save(session: PracticeSession): Promise<void> {
     // 1. Always cache in-memory and persist locally for zero-latency local operation
     this.inMemorySessions.set(session.id, session);
-    this.persistToLocalStorage();
+    this.persistToLocalStorage(session.userId);
 
     // 2. Sync to Supabase if valid UUID
     if (this.isValidUUID(session.id) && this.isValidUUID(session.userId)) {
@@ -140,7 +144,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
   public async update(session: PracticeSession): Promise<void> {
     // 1. Always update in-memory and persist locally
     this.inMemorySessions.set(session.id, session);
-    this.persistToLocalStorage();
+    this.persistToLocalStorage(session.userId);
 
     // 2. Sync to Supabase if valid UUID
     if (this.isValidUUID(session.id) && this.isValidUUID(session.userId)) {
@@ -158,7 +162,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
 
   public async delete(id: string, userId: string): Promise<void> {
     this.inMemorySessions.delete(id);
-    this.persistToLocalStorage();
+    this.persistToLocalStorage(userId);
 
     if (this.isValidUUID(id) && this.isValidUUID(userId)) {
       try {
@@ -226,9 +230,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
 
     // 2. Reliable Local Calculation from in-memory / local storage
     const localMatches = Array.from(this.inMemorySessions.values()).filter(
-      (s) =>
-        (s.userId === userId || userId === 'guest-user' || !s.userId) &&
-        s.overallScore !== null
+      (s) => s.userId === userId && s.overallScore !== null
     );
 
     if (localMatches.length === 0) {

@@ -11,6 +11,7 @@ import {
 import { useTamSpeakStore } from '../../store';
 import { aiService, PlacementTestResult } from '../../../infrastructure/ai/AIService';
 import { container } from '../../../di/DIContainer';
+import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
 
 const PLACEMENT_QUESTIONS = [
   {
@@ -40,26 +41,25 @@ export const OnboardingWizardView: React.FC = () => {
   const [targetBand, setTargetBand] = useState<number>(user?.targetBand || 7.0);
   const [primaryGoal, setPrimaryGoal] = useState<string>('IELTS Exam Preparation');
 
-  // Load draft from localStorage on mount (Resilience)
+  // Load draft from user-scoped storage on mount (Resilience)
   useEffect(() => {
     try {
-      const draft = localStorage.getItem('tamspeak_onboarding_draft');
+      const draft = UserStorageService.getUserOnboardingDraft(user?.id);
       if (draft) {
-        const parsed = JSON.parse(draft);
-        if (parsed.displayName) setDisplayName(parsed.displayName);
-        if (parsed.targetBand) setTargetBand(parsed.targetBand);
-        if (parsed.primaryGoal) setPrimaryGoal(parsed.primaryGoal);
+        if (draft.displayName) setDisplayName(draft.displayName);
+        if (draft.targetBand) setTargetBand(draft.targetBand);
+        if (draft.primaryGoal) setPrimaryGoal(draft.primaryGoal);
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [user?.id]);
 
   const handleProceedToStep2 = () => {
     try {
-      localStorage.setItem(
-        'tamspeak_onboarding_draft',
-        JSON.stringify({ displayName, targetBand, primaryGoal })
+      UserStorageService.setUserOnboardingDraft(
+        { displayName, targetBand, primaryGoal },
+        user?.id
       );
     } catch {
       // ignore
@@ -183,9 +183,9 @@ export const OnboardingWizardView: React.FC = () => {
     setHasCompletedOnboarding(true);
 
     try {
-      localStorage.setItem('tamspeak_user_profile', JSON.stringify(updatedProfile));
-      localStorage.setItem('tamspeak_onboarding_completed', 'true');
-      localStorage.removeItem('tamspeak_onboarding_draft');
+      UserStorageService.setUserProfile(updatedProfile, user?.id);
+      UserStorageService.setUserOnboardingCompleted(true, user?.id);
+      UserStorageService.clearUserOnboardingDraft(user?.id);
     } catch {
       // ignore
     }

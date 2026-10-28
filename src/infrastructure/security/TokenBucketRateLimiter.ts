@@ -1,4 +1,5 @@
 import { RateLimitExceededError } from '../../domain/errors/DomainErrors';
+import { UserStorageService } from './UserStorageService';
 
 export interface RateLimiterOptions {
   capacity: number; // Max burst tokens
@@ -70,11 +71,9 @@ export class TokenBucketRateLimiter {
    */
   public checkAndConsumeRequest(userId: string): void {
     // BYOK personal key check: users using their own API key are not throttled by shared pool limiter
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const personal = window.localStorage.getItem('tamspeak_byok_gemini');
-      if (personal && personal.trim().length > 0) {
-        return;
-      }
+    const personal = UserStorageService.getUserPersonalApiKey(userId);
+    if (personal && personal.trim().length > 0) {
+      return;
     }
 
     const bucket = this.getOrCreateBucket(userId);

@@ -26,7 +26,8 @@ CREATE TYPE skill_level AS ENUM (
   'b1',
   'b2',
   'c1',
-  'c2'
+  'c2',
+  'unrated'
 );
 
 CREATE TYPE ai_provider AS ENUM (
@@ -324,7 +325,16 @@ CREATE POLICY "Users can delete their own vocabulary"
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  clean_name TEXT;
 BEGIN
+  clean_name := COALESCE(
+    NEW.raw_user_meta_data->>'display_name',
+    NEW.raw_user_meta_data->>'full_name',
+    split_part(NEW.email, '@', 1),
+    'Learner'
+  );
+
   INSERT INTO public.profiles (
     id,
     email,
@@ -333,22 +343,27 @@ BEGIN
     target_band,
     current_level,
     streak_days,
-    total_practice_minutes
+    total_practice_minutes,
+    created_at,
+    updated_at
   )
   VALUES (
     NEW.id,
     NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'display_name', NEW.raw_user_meta_data->>'full_name', 'Learner'),
+    clean_name,
     NEW.raw_user_meta_data->>'avatar_url',
     7.5,
-    'b2',
-    1,
-    0
+    'unrated'::skill_level,
+    0,
+    0,
+    NOW(),
+    NOW()
   )
   ON CONFLICT (id) DO UPDATE SET
     email = EXCLUDED.email,
-    display_name = COALESCE(EXCLUDED.display_name, public.profiles.display_name),
-    avatar_url = COALESCE(EXCLUDED.avatar_url, public.profiles.avatar_url);
+    display_name = COALESCE(public.profiles.display_name, EXCLUDED.display_name),
+    avatar_url = COALESCE(public.profiles.avatar_url, EXCLUDED.avatar_url),
+    updated_at = NOW();
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

@@ -8,7 +8,7 @@ export class InvalidUserError extends DomainError {
   }
 }
 
-export type SkillLevel = 'a2' | 'b1' | 'b2' | 'c1' | 'c2';
+export type SkillLevel = 'a2' | 'b1' | 'b2' | 'c1' | 'c2' | 'unrated';
 
 export interface UserProps {
   id: string;
@@ -82,7 +82,7 @@ export class User {
       displayName: trimmedName,
       avatarUrl: params.avatarUrl ?? null,
       targetBand: params.targetBand ?? BandScore.create(7.5),
-      currentLevel: params.currentLevel ?? 'b2',
+      currentLevel: params.currentLevel ?? 'unrated',
       streakDays: 0,
       lastPracticeDate: null,
       totalPracticeMinutes: 0,

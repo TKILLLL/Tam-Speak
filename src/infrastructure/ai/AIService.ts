@@ -1,5 +1,17 @@
 import { useTamSpeakStore } from '../../presentation/store';
 import { normalizeGeminiContents } from './normalizeGeminiContents';
+import { UserStorageService } from '../security/UserStorageService';
+
+// Ephemeral in-memory personal BYOK key (RAM-only per authenticated user)
+let inMemoryPersonalApiKey: string | null = null;
+
+export function setPersonalApiKey(key: string | null): void {
+  inMemoryPersonalApiKey = key && key.trim().length > 0 ? key.trim() : null;
+}
+
+export function clearPersonalApiKey(): void {
+  inMemoryPersonalApiKey = null;
+}
 
 // Base64 decoded fallback key to comply with repository push security policies
 export const DEFAULT_GEMINI_FALLBACK_KEY =
@@ -21,23 +33,36 @@ export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
 
 /**
  * Global single source of truth for resolving active Google Gemini API Key:
- * 1. Personal BYOK key saved in LocalStorage ('tamspeak_byok_gemini')
- * 2. Vite environment variable VITE_GEMINI_API_KEY
- * 3. Default fallback key (securely base64 decoded)
+ * 1. Ephemeral In-Memory Personal Key (RAM only)
+ * 2. User-isolated Vault Key from UserStorageService (`tamspeak_vault_gemini_${userId}`)
+ * 3. Vite environment variable VITE_GEMINI_API_KEY
+ * 4. Silent internal fallback key (Never exposed to UI / user storage)
  */
 export function getActiveGeminiApiKey(): string {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    const personal = window.localStorage.getItem('tamspeak_byok_gemini');
-    if (personal && personal.trim().length > 0) {
-      return personal.trim();
-    }
+  // 1. In-memory personal key
+  if (inMemoryPersonalApiKey && inMemoryPersonalApiKey.length > 0) {
+    return inMemoryPersonalApiKey;
   }
 
+  // 2. User-isolated vault key for current logged in user
+  try {
+    const currentUserId = useTamSpeakStore.getState().user?.id;
+    const userVaultKey = UserStorageService.getUserPersonalApiKey(currentUserId);
+    if (userVaultKey && userVaultKey.trim().length > 0) {
+      inMemoryPersonalApiKey = userVaultKey.trim();
+      return inMemoryPersonalApiKey;
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Environment variable fallback
   if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
     const envKey = import.meta.env.VITE_GEMINI_API_KEY.trim();
     if (envKey.length > 0) return envKey;
   }
 
+  // 4. Silent internal default key
   return DEFAULT_GEMINI_FALLBACK_KEY;
 }
 

@@ -68,7 +68,8 @@ export interface IAIGateway {
     targetBand: BandScore;
   }): Promise<UpgradedExpressionResult>;
 
-  setPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter', key: string | null): void;
-  getPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter'): string | null;
+  setPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter', key: string | null, userId?: string | null): void;
+  getPersonalKey?(provider: 'gemini' | 'groq' | 'openrouter', userId?: string | null): string | null;
+  clearPersonalKeys?(): void;
   transcribeAudio?(audioBlob: Blob, promptContext?: string): Promise<string>;
 }

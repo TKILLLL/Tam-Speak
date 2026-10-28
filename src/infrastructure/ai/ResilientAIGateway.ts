@@ -15,6 +15,7 @@ import { IAIProviderStrategy, ChatMessagePayload } from './providers/IAIProvider
 import { GeminiProviderStrategy } from './providers/GeminiProviderStrategy';
 import { useTamSpeakStore } from '../../presentation/store';
 import { DEFAULT_GEMINI_FALLBACK_KEY, getActiveGeminiApiKey } from './AIService';
+import { UserStorageService } from '../security/UserStorageService';
 
 // --- Zod Schemas for LLM Output Validation ---
 
@@ -150,33 +151,31 @@ export class ResilientAIGateway implements IAIGateway {
     }
   }
 
-  public setPersonalKey(provider: 'gemini', key: string | null): void {
+  public setPersonalKey(provider: 'gemini', key: string | null, userId?: string | null): void {
     if (!key || key.trim().length === 0) {
       this.personalKeys.delete(provider);
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(`tamspeak_byok_${provider}`);
-      }
+      UserStorageService.setUserPersonalApiKey(null, userId);
     } else {
       const trimmed = key.trim();
       this.personalKeys.set(provider, trimmed);
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(`tamspeak_byok_${provider}`, trimmed);
-      }
+      UserStorageService.setUserPersonalApiKey(trimmed, userId);
     }
   }
 
-  public getPersonalKey(provider: 'gemini'): string | null {
+  public getPersonalKey(provider: 'gemini', userId?: string | null): string | null {
     if (this.personalKeys.has(provider)) {
       return this.personalKeys.get(provider)!;
     }
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const stored = window.localStorage.getItem(`tamspeak_byok_${provider}`);
-      if (stored && stored.trim().length > 0) {
-        this.personalKeys.set(provider, stored.trim());
-        return stored.trim();
-      }
+    const stored = UserStorageService.getUserPersonalApiKey(userId);
+    if (stored && stored.trim().length > 0) {
+      this.personalKeys.set(provider, stored.trim());
+      return stored.trim();
     }
     return null;
+  }
+
+  public clearPersonalKeys(): void {
+    this.personalKeys.clear();
   }
 
   public registerStrategy(strategy: IAIProviderStrategy): void {

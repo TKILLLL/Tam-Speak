@@ -9,11 +9,11 @@ import {
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { supabase } from '../../../infrastructure/database/supabase/supabaseClient';
+import { AuthBoundaryGuard } from '../../../infrastructure/security/AuthBoundaryGuard';
 
 export const Header: React.FC = () => {
   const {
     user,
-    setUser,
     setAuthModalOpen,
     setCurrentView,
     activeAIProvider,
@@ -39,12 +39,13 @@ export const Header: React.FC = () => {
   }, [dropdownOpen]);
 
   const handleSignOut = async () => {
+    const previousUserId = user?.id;
     try {
       await supabase.auth.signOut();
     } catch (err) {
       console.error('Sign out error:', err);
     }
-    setUser(null);
+    AuthBoundaryGuard.resetAllStoresOnAuthChange(previousUserId);
     setDropdownOpen(false);
   };
 

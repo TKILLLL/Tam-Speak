@@ -12,7 +12,6 @@ import { useTamSpeakStore, ActivePartType } from '../../store';
 import { CustomTopicBuilder } from './CustomTopicBuilder';
 import { container } from '../../../di/DIContainer';
 import { PracticeMode, DialogueTurn } from '../../../domain/entities/PracticeSession';
-import { SkillLevel } from '../../../domain/entities/User';
 import { aiService } from '../../../infrastructure/ai/AIService';
 
 const mapPresetToActivePart = (presetId: string, mode: string): ActivePartType => {
@@ -425,7 +424,7 @@ export const QuickStartTab: React.FC = () => {
           <span className="text-[11px] font-bold text-slate-500">Target:</span>
           <select
             value={targetLevel}
-            onChange={(e) => setTargetLevel(e.target.value as SkillLevel)}
+            onChange={(e) => setTargetLevel(e.target.value as 'a2' | 'b1' | 'b2' | 'c1' | 'c2')}
             className="bg-slate-100 border-0 rounded-lg px-2 py-0.5 text-[11px] font-bold text-slate-800 uppercase cursor-pointer hover:bg-slate-200/70"
           >
             <option value="a2">A2 (4.0-5.0)</option>

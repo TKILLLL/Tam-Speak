@@ -18,4 +18,5 @@ export interface ISessionRepository {
   update(session: PracticeSession): Promise<void>;
   delete(id: string, userId: string): Promise<void>;
   getAggregatedStats(userId: string): Promise<AggregatedUserStats>;
+  clearMemoryCache?(): void;
 }

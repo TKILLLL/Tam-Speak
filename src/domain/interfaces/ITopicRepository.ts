@@ -8,4 +8,5 @@ export interface ITopicRepository {
   save(topic: CustomTopic): Promise<void>;
   update(topic: CustomTopic): Promise<void>;
   delete(id: string, userId: string): Promise<void>;
+  clearMemoryCache?(): void;
 }
