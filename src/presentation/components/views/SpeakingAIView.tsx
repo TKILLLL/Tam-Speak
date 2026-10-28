@@ -13,6 +13,7 @@ import {
 import { motion } from 'framer-motion';
 import { useTamSpeakStore, EphemeralTurn, OrbState } from '../../store';
 import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer';
+import { SpeechNoiseFilter } from '../../../infrastructure/audio/SpeechNoiseFilter';
 import { container } from '../../../di/DIContainer';
 
 const INITIAL_FRIEND_GREETING =
@@ -70,6 +71,7 @@ export const SpeakingAIView: React.FC = () => {
     liveSpeechTranscript,
     setLiveSpeechTranscript,
     isAutoVadEnabled,
+    setIsAutoVadEnabled,
     toggleAutoVad,
     user,
     ephemeralMessages,
@@ -125,9 +127,14 @@ export const SpeakingAIView: React.FC = () => {
       });
     }
 
-    // 2. Unmount Cleanup: Stop TTS, export mistakes to Pronunciation Lab, wipe ephemeral memory
+    // 2. Unmount Cleanup: Stop TTS & STT, abort recordings, export mistakes, wipe ephemeral memory
     return () => {
       isMountedRef.current = false;
+
+      if (vadSilenceTimerRef.current) {
+        clearTimeout(vadSilenceTimerRef.current);
+        vadSilenceTimerRef.current = null;
+      }
 
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
@@ -137,6 +144,10 @@ export const SpeakingAIView: React.FC = () => {
         }
       }
       container.speechTTSEngine.stop();
+      container.speechSTTEngine.stop();
+      container.speechSTTEngine.abort();
+      audioAnalyzer.stopAnalyzing(0);
+      setIsAutoVadEnabled(false);
 
       // Automatically push detected mistakes to Pronunciation & IPA Lab before clearing
       const currentMessages = useTamSpeakStore.getState().ephemeralMessages;
@@ -158,7 +169,7 @@ export const SpeakingAIView: React.FC = () => {
       setOrbState('idle');
       setLiveSpeechTranscript('');
     };
-  }, [addEphemeralMessage, addPronunciationMistake, clearEphemeralMessages, setLiveSpeechTranscript, setOrbState]);
+  }, [addEphemeralMessage, addPronunciationMistake, audioAnalyzer, clearEphemeralMessages, setIsAutoVadEnabled, setLiveSpeechTranscript, setOrbState]);
 
   // Start Voice Input
   const startVoiceInput = useCallback(async () => {
@@ -247,6 +258,15 @@ export const SpeakingAIView: React.FC = () => {
       setOrbState('idle');
       return;
     }
+
+    const actualDurationSeconds = recResult?.durationSeconds || 1;
+    const speechValidation = SpeechNoiseFilter.validateSpeech(spokenTranscript, actualDurationSeconds);
+    if (!speechValidation.isValid) {
+      console.warn('Discarded accidental voice / noise input:', speechValidation.reason, spokenTranscript);
+      setOrbState('idle');
+      return;
+    }
+    spokenTranscript = speechValidation.cleanedText;
 
     // 4. Stale Closure Fix: Always read the latest full session history directly from store
     const latestMessages = useTamSpeakStore.getState().ephemeralMessages;
@@ -349,7 +369,13 @@ export const SpeakingAIView: React.FC = () => {
     const isTypingInInput = (target: HTMLElement | null): boolean => {
       if (!target) return false;
       const tag = target.tagName;
-      return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+        return true;
+      }
+      if (target.closest('[role="dialog"]') || target.closest('.modal')) {
+        return true;
+      }
+      return false;
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -401,28 +427,22 @@ export const SpeakingAIView: React.FC = () => {
       if (isHoldingRef.current) {
         stopVoiceInput();
       }
-      return;
     }
+  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
 
-    // If idle and not holding, auto-start listening
-    if (orbState === 'idle' && !isHoldingRef.current) {
-      startVoiceInput();
-    }
-  }, [isAutoVadEnabled, orbState, startVoiceInput, stopVoiceInput]);
-
-  // VAD Auto-Submit when silence follows speech
+  // VAD Auto-Submit when silence follows substantial speech
   useEffect(() => {
     if (!isAutoVadEnabled || !isHoldingRef.current || orbState !== 'listening') {
       return;
     }
 
-    if (transcriptBufferRef.current.trim().length > 0) {
+    if (SpeechNoiseFilter.hasSubstantialSpeechForVad(transcriptBufferRef.current)) {
       if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
       vadSilenceTimerRef.current = setTimeout(() => {
         if (isHoldingRef.current && orbState === 'listening') {
           stopVoiceInput();
         }
-      }, 1600);
+      }, 2000);
     }
 
     return () => {

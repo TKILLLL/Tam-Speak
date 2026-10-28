@@ -5,6 +5,7 @@ import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer
 import { container } from '../../../di/DIContainer';
 import { PracticeSession, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { aiService } from '../../../infrastructure/ai/AIService';
+import { SpeechNoiseFilter } from '../../../infrastructure/audio/SpeechNoiseFilter';
 
 const RANDOM_STARTER_TOPICS = [
   {
@@ -29,6 +30,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     setOrbState,
     setAudioLevel,
     isAutoVadEnabled,
+    setIsAutoVadEnabled,
     toggleAutoVad,
     activeTopic,
     setActiveTopic,
@@ -219,6 +221,18 @@ export const HoldSpaceToTalk: React.FC = () => {
       return;
     }
 
+    const audioUrl = recResult?.blob ? URL.createObjectURL(recResult.blob) : undefined;
+    const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);
+
+    // Accidental Noise & Murmur Filter
+    const validation = SpeechNoiseFilter.validateSpeech(spokenTranscript, actualDurationSeconds);
+    if (!validation.isValid) {
+      console.warn('Ignored accidental noise or unintelligible speech:', validation.reason, spokenTranscript);
+      setOrbState('idle');
+      return;
+    }
+    spokenTranscript = validation.cleanedText;
+
     // 4. Mistakes array to be populated dynamically by real LLM Examiner evaluation
     const detectedMistakes: Array<{
       word: string;
@@ -226,9 +240,6 @@ export const HoldSpaceToTalk: React.FC = () => {
       ipa: string;
       suggestedAlternative: string;
     }> = [];
-
-    const audioUrl = recResult?.blob ? URL.createObjectURL(recResult.blob) : undefined;
-    const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);
 
     // 5. Plan next question dynamically using AI (zero static question bank data)
     let plannedNextQuestion = '';
@@ -377,12 +388,22 @@ export const HoldSpaceToTalk: React.FC = () => {
     const isTypingInInput = (target: HTMLElement | null): boolean => {
       if (!target) return false;
       const tag = target.tagName;
-      return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+        return true;
+      }
+      if (target.closest('[role="dialog"]') || target.closest('.modal')) {
+        return true;
+      }
+      return false;
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (isTypingInInput(target)) {
+        return;
+      }
+
+      if (useTamSpeakStore.getState().topicChangeWarningModalOpen) {
         return;
       }
 
@@ -428,6 +449,23 @@ export const HoldSpaceToTalk: React.FC = () => {
   const vadSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orbState = useTamSpeakStore((s) => s.orbState);
 
+  // Unmount Cleanup: strictly abort any ongoing recognition, silence timers and reset hot-mic
+  useEffect(() => {
+    return () => {
+      if (vadSilenceTimerRef.current) {
+        clearTimeout(vadSilenceTimerRef.current);
+        vadSilenceTimerRef.current = null;
+      }
+      isHoldingRef.current = false;
+      setIsHolding(false);
+      container.speechSTTEngine.stop();
+      container.speechSTTEngine.abort();
+      audioAnalyzer.stopAnalyzing(0);
+      setIsAutoVadEnabled(false);
+      setLiveSpeechTranscript('');
+    };
+  }, [audioAnalyzer, setIsAutoVadEnabled, setLiveSpeechTranscript]);
+
   useEffect(() => {
     if (!isAutoVadEnabled) {
       if (vadSilenceTimerRef.current) {
@@ -442,28 +480,22 @@ export const HoldSpaceToTalk: React.FC = () => {
       if (isHoldingRef.current) {
         stopVoiceInput();
       }
-      return;
     }
+  }, [isAutoVadEnabled, orbState, stopVoiceInput]);
 
-    // If idle and not holding, auto-start listening
-    if (orbState === 'idle' && !isHoldingRef.current) {
-      startVoiceInput();
-    }
-  }, [isAutoVadEnabled, orbState, startVoiceInput, stopVoiceInput]);
-
-  // VAD Auto-Submit when silence follows speech
+  // VAD Auto-Submit when silence follows substantial speech
   useEffect(() => {
     if (!isAutoVadEnabled || !isHoldingRef.current || orbState !== 'listening') {
       return;
     }
 
-    if (transcriptBufferRef.current.trim().length > 0) {
+    if (SpeechNoiseFilter.hasSubstantialSpeechForVad(transcriptBufferRef.current)) {
       if (vadSilenceTimerRef.current) clearTimeout(vadSilenceTimerRef.current);
       vadSilenceTimerRef.current = setTimeout(() => {
         if (isHoldingRef.current && orbState === 'listening') {
           stopVoiceInput();
         }
-      }, 1600);
+      }, 2000);
     }
 
     return () => {

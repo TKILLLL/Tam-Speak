@@ -130,6 +130,7 @@ export interface TamSpeakState {
   toggleHideLastMessage: () => void;
   setIsLastMessageHidden: (hidden: boolean) => void;
   isAutoVadEnabled: boolean;
+  setIsAutoVadEnabled: (enabled: boolean) => void;
   toggleAutoVad: () => void;
 
   // Active Practice & Dialogue (Single Source of Truth)
@@ -259,7 +260,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
 
   // Navigation & Layout (Default: 'conversation')
   currentView: 'conversation',
-  setCurrentView: (view) => set({ currentView: view }),
+  setCurrentView: (view) => set({ currentView: view, isAutoVadEnabled: false, liveSpeechTranscript: '' }),
   sidebarCollapsed: false,
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
@@ -299,6 +300,7 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   toggleHideLastMessage: () => set((state) => ({ isLastMessageHidden: !state.isLastMessageHidden })),
   setIsLastMessageHidden: (hidden) => set({ isLastMessageHidden: hidden }),
   isAutoVadEnabled: false,
+  setIsAutoVadEnabled: (isAutoVadEnabled) => set({ isAutoVadEnabled }),
   toggleAutoVad: () => set((state) => ({ isAutoVadEnabled: !state.isAutoVadEnabled })),
 
   // Active Practice & Dialogue (Single Source of Truth)

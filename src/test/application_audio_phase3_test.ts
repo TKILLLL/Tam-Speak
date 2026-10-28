@@ -6,6 +6,7 @@ import {
   LanguageToolAdapter,
   FreeTranslateAdapter,
 } from '../infrastructure/external';
+import { SpeechNoiseFilter } from '../infrastructure/audio/SpeechNoiseFilter';
 import { IPAPhonetic } from '../domain/value-objects/IPAPhonetic';
 import { container } from '../di/DIContainer';
 import { PromptInjectionDetectedError } from '../domain/errors/DomainErrors';
@@ -270,6 +271,38 @@ async function runPhase3Tests(): Promise<void> {
   assert(container.dictionaryGateway !== undefined, 'dictionaryGateway resolved');
   assert(container.evaluateSpeechUseCase !== undefined, 'evaluateSpeechUseCase resolved');
   assert(container.chatRoleplayUseCase !== undefined, 'chatRoleplayUseCase resolved');
+
+  // 8. SpeechNoiseFilter Accidental Voice & Murmur Filtering
+  console.log('Testing SpeechNoiseFilter defense against accidental speech & murmurs...');
+  const emptyCheck = SpeechNoiseFilter.validateSpeech('');
+  assert(!emptyCheck.isValid, 'Empty string is rejected');
+
+  const punctuationCheck = SpeechNoiseFilter.validateSpeech('...!?');
+  assert(!punctuationCheck.isValid, 'Punctuation-only is rejected');
+
+  const singleFillerCheck = SpeechNoiseFilter.validateSpeech('uh');
+  assert(!singleFillerCheck.isValid, 'Single "uh" filler is rejected');
+  assert(singleFillerCheck.reason === 'single_filler_noise', 'Reason is single_filler_noise');
+
+  const vietFillerCheck = SpeechNoiseFilter.validateSpeech('ủa');
+  assert(!vietFillerCheck.isValid, 'Single Vietnamese murmur "ủa" is rejected');
+
+  const multiFillerCheck = SpeechNoiseFilter.validateSpeech('uh um ah');
+  assert(!multiFillerCheck.isValid, 'All filler words are rejected');
+
+  const shortFragmentCheck = SpeechNoiseFilter.validateSpeech('cat', 0.3);
+  assert(!shortFragmentCheck.isValid, 'Accidental short fragment < 0.6s is rejected');
+
+  const allowedSingleWord = SpeechNoiseFilter.validateSpeech('Yes', 0.4);
+  assert(allowedSingleWord.isValid, 'Allowed single-word command "Yes" is valid');
+
+  const fullSentenceCheck = SpeechNoiseFilter.validateSpeech('I really enjoy reading books in my leisure time', 3.2);
+  assert(fullSentenceCheck.isValid, 'Full meaningful sentence is accepted');
+
+  assert(!SpeechNoiseFilter.hasSubstantialSpeechForVad('uh'), 'Single filler cannot arm VAD');
+  assert(!SpeechNoiseFilter.hasSubstantialSpeechForVad('hi'), 'Ultra short 2-char cannot arm VAD');
+  assert(SpeechNoiseFilter.hasSubstantialSpeechForVad('hello'), 'Substantial single word arms VAD');
+  assert(SpeechNoiseFilter.hasSubstantialSpeechForVad('I think so'), 'Multi-word arms VAD');
 
   console.log('[SUCCESS] ALL PHASE 3 AUDIO, 0-TOKEN & USE CASES TESTS PASSED WITH 100% SUCCESS!');
 }
