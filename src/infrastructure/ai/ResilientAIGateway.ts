@@ -226,12 +226,16 @@ export class ResilientAIGateway implements IAIGateway {
       const mimeType = audioBlob.type || 'audio/webm';
       const cleanMimeType = mimeType.split(';')[0] || 'audio/webm';
 
+      // STT is on the critical path. Try the specialized model first and only
+      // use the general models when Google explicitly reports a transient error.
       const sttModels = ['gemini-3.5-transcribe', 'gemini-3.8-flash', 'gemini-3.6-flash'];
 
       for (const model of sttModels) {
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4_500);
           const resp = await fetch(url, {
             method: 'POST',
             headers: {
@@ -260,7 +264,9 @@ export class ResilientAIGateway implements IAIGateway {
                 maxOutputTokens: 600,
               },
             }),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (resp.ok) {
             const data = await resp.json();
@@ -268,6 +274,8 @@ export class ResilientAIGateway implements IAIGateway {
             if (candidateText && candidateText.trim().length > 0) {
               return candidateText.trim().replace(/^["']|["']$/g, '');
             }
+          } else if (![404, 429, 500, 502, 503, 504].includes(resp.status)) {
+            break;
           }
         } catch (mErr) {
           console.warn(`STT model ${model} attempt error:`, mErr);

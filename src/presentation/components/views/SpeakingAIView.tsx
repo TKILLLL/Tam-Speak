@@ -321,14 +321,6 @@ export const SpeakingAIView: React.FC = () => {
     }));
 
     try {
-      // Silent Rate Limit Pacing: Ensure at least 3.8s spacing between consecutive AI calls while showing 'thinking'
-      const MIN_INTERVAL_MS = 3800;
-      const now = Date.now();
-      const elapsed = now - lastApiCallTimestampRef.current;
-      if (lastApiCallTimestampRef.current > 0 && elapsed < MIN_INTERVAL_MS) {
-        const silentDelay = MIN_INTERVAL_MS - elapsed;
-        await new Promise((resolve) => setTimeout(resolve, silentDelay));
-      }
       lastApiCallTimestampRef.current = Date.now();
 
       const result = await container.chatSpeakingAIUseCase.execute({

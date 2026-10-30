@@ -146,7 +146,7 @@ export class AIService {
       temperature = 0.7,
       jsonMode = false,
       maxOutputTokens = 1200,
-      timeoutMs = 12_000,
+      timeoutMs = 8_000,
     } = params;
     const apiKey = this.getActiveApiKey();
 
@@ -154,7 +154,9 @@ export class AIService {
     const contents = normalizeGeminiContents(messages);
 
     const errors: string[] = [];
-    const overallDeadline = Date.now() + 25_000;
+    // Keep interactive turns responsive. A healthy primary model normally
+    // answers within this window; fallback models share the same deadline.
+    const overallDeadline = Date.now() + 9_000;
 
     // Loop over fallback chain starting from activeModelIndex
     for (let i = 0; i < GEMINI_MODELS_FALLBACK_CHAIN.length; i++) {
@@ -332,7 +334,7 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         temperature: 0.5,
         jsonMode: true,
         maxOutputTokens: 800,
-        timeoutMs: 10_000,
+        timeoutMs: 7_000,
       });
 
       const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
@@ -414,7 +416,7 @@ Generate JSON evaluation and transition now.`;
       temperature: 0.6,
       jsonMode: true,
       maxOutputTokens: 1200,
-      timeoutMs: 15_000,
+      timeoutMs: 8_500,
     });
 
     const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
@@ -458,7 +460,7 @@ Do not use generic placeholders. Formulate a genuine, topic-specific opening que
       messages: [{ role: 'user', content: `Please generate the opening line and question for topic "${params.topicTitle}".` }],
       temperature: 0.7,
       maxOutputTokens: 300,
-      timeoutMs: 10_000,
+      timeoutMs: 7_000,
     });
 
     return raw.trim().replace(/^["']|["']$/g, '');
@@ -477,7 +479,7 @@ Generate a warm, spontaneous, and conversational opening greeting to kick off to
       messages: [{ role: 'user', content: 'Generate opening greeting now.' }],
       temperature: 0.8,
       maxOutputTokens: 200,
-      timeoutMs: 8_000,
+      timeoutMs: 6_000,
     });
 
     return raw.trim().replace(/^["']|["']$/g, '');
@@ -490,7 +492,7 @@ Generate a warm, spontaneous, and conversational opening greeting to kick off to
       temperature: 0.7,
       jsonMode: true,
       maxOutputTokens: 400,
-      timeoutMs: 10_000,
+      timeoutMs: 7_000,
     });
     const parsed = this.cleanAndParseJson<{ questions?: PlacementQuestion[] }>(raw, { questions: [] });
     return (parsed.questions || [])
