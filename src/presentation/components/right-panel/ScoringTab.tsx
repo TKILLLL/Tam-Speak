@@ -9,143 +9,7 @@ import {
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
-import { DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
-
-interface DeterministicScoreInput {
-  userTurns: DialogueTurn[];
-  totalUserWords: number;
-  totalSpeechSeconds: number;
-  realWpm: number;
-  totalHesitations: number;
-  topicTitle: string;
-}
-
-const computeDeterministicIELTSScore = (input: DeterministicScoreInput) => {
-  const { userTurns, totalUserWords, realWpm, totalHesitations } = input;
-
-  // 1. Fluency & Coherence
-  let rawFluency = 6.0;
-  if (realWpm >= 120 && totalHesitations <= 1) {
-    rawFluency = 7.5;
-  } else if (realWpm >= 105 && totalHesitations <= 2) {
-    rawFluency = 7.0;
-  } else if (realWpm >= 90) {
-    rawFluency = 6.5;
-  } else if (realWpm >= 75) {
-    rawFluency = 6.0;
-  } else {
-    rawFluency = 5.5;
-  }
-  if (totalHesitations >= 3) rawFluency = Math.max(5.0, rawFluency - 0.5);
-  if (totalUserWords < 20) rawFluency = Math.min(5.5, rawFluency);
-
-  // 2. Lexical Resource
-  const allUserText = userTurns.map((t) => t.text).join(' ').toLowerCase();
-  const tokens = allUserText.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-  const uniqueTokens = new Set(tokens);
-  const uniqueRatio = tokens.length > 0 ? uniqueTokens.size / tokens.length : 0.5;
-
-  let rawLexical = 6.0;
-  if (uniqueRatio >= 0.70 && tokens.length >= 25) {
-    rawLexical = 7.5;
-  } else if (uniqueRatio >= 0.58 && tokens.length >= 15) {
-    rawLexical = 7.0;
-  } else if (uniqueRatio >= 0.48) {
-    rawLexical = 6.5;
-  } else {
-    rawLexical = 6.0;
-  }
-
-  // 3. Grammatical Range & Accuracy
-  const complexConnectors = [
-    'because', 'although', 'though', 'however', 'moreover', 'furthermore',
-    'which', 'that', 'who', 'whose', 'if', 'unless', 'while', 'whereas',
-    'since', 'as a result', 'in order to', 'despite', 'in spite of', 'consequently'
-  ];
-  let connectorCount = 0;
-  for (const c of complexConnectors) {
-    if (allUserText.includes(c)) connectorCount++;
-  }
-  const avgWordsPerTurn = userTurns.length > 0 ? tokens.length / userTurns.length : 0;
-
-  let rawGrammar = 6.0;
-  if (connectorCount >= 3 && avgWordsPerTurn >= 10) {
-    rawGrammar = 7.5;
-  } else if (connectorCount >= 2 || avgWordsPerTurn >= 8) {
-    rawGrammar = 7.0;
-  } else if (connectorCount >= 1 || avgWordsPerTurn >= 5) {
-    rawGrammar = 6.5;
-  } else {
-    rawGrammar = 6.0;
-  }
-
-  // 4. Pronunciation
-  const totalMistakes = userTurns.reduce((sum, t) => sum + (t.mistakes?.length || 0), 0);
-  let rawPronunciation = 7.0;
-  if (totalMistakes === 0) {
-    rawPronunciation = 7.5;
-  } else if (totalMistakes === 1) {
-    rawPronunciation = 7.0;
-  } else if (totalMistakes <= 3) {
-    rawPronunciation = 6.5;
-  } else {
-    rawPronunciation = 6.0;
-  }
-
-  // Composite Band Score (IELTS rounding: average rounded to nearest 0.5)
-  const rawAvg = (rawFluency + rawLexical + rawGrammar + rawPronunciation) / 4;
-  const overallBand = Math.round(rawAvg * 2) / 2;
-
-  // Contextual Strengths & Weaknesses
-  const strengths: string[] = [];
-  if (realWpm >= 95) {
-    strengths.push(`Good natural speaking rhythm (~${realWpm} WPM) with coherent continuous flow.`);
-  } else {
-    strengths.push('Spoke clearly and completed responses to all questions.');
-  }
-
-  if (uniqueRatio >= 0.55) {
-    strengths.push('Diverse lexical choices with appropriate context vocabulary.');
-  } else {
-    strengths.push('Appropriate vocabulary choices aligned with the discussion topic.');
-  }
-
-  if (connectorCount >= 2) {
-    strengths.push('Good use of discourse markers to link cohesive clauses.');
-  } else if (totalMistakes === 0) {
-    strengths.push('Clear sound articulation with correct word stress.');
-  }
-
-  const weaknesses: string[] = [];
-  if (totalHesitations >= 2) {
-    weaknesses.push('Occasional mid-sentence hesitations when retrieving complex vocabulary.');
-  }
-  if (totalMistakes > 0) {
-    weaknesses.push('Phonetic friction identified on specific words (automatically saved to Pronunciation Lab).');
-  }
-  if (connectorCount < 2) {
-    weaknesses.push('Incorporate more subordinating conjunctions ("although", "whereas", "consequently") to elevate grammar.');
-  }
-  if (uniqueRatio < 0.55) {
-    weaknesses.push('Expand vocabulary range by using more topic-specific collocations and idioms.');
-  }
-  if (weaknesses.length === 0) {
-    weaknesses.push('Further expand complex conditional clauses to reach Band 8.0+ fluency.');
-  }
-
-  return {
-    overallScore: Math.min(9.0, Math.max(1.0, overallBand)),
-    pronunciationScore: rawPronunciation,
-    fluencyScore: rawFluency,
-    lexicalScore: rawLexical,
-    grammarScore: rawGrammar,
-    wpm: realWpm,
-    hesitationCount: totalHesitations,
-    strengths: strengths.slice(0, 3),
-    weaknesses: weaknesses.slice(0, 3),
-  };
-};
 
 export const convertBandToCEFR = (band: number): 'a2' | 'b1' | 'b2' | 'c1' | 'c2' => {
   if (band < 4.0) return 'a2';
@@ -173,14 +37,14 @@ export const ScoringTab: React.FC = () => {
     activeSession?.overallScore
       ? {
           overallScore: activeSession.overallScore,
-          pronunciationScore: activeSession.pronunciationScore ?? 6.0,
-          fluencyScore: activeSession.fluencyScore ?? 6.0,
-          lexicalScore: activeSession.lexicalScore ?? 6.0,
-          grammarScore: activeSession.grammarScore ?? 6.0,
-          wpm: activeSession.wordsPerMinute ?? 110,
+          pronunciationScore: activeSession.pronunciationScore ?? 0,
+          fluencyScore: activeSession.fluencyScore ?? 0,
+          lexicalScore: activeSession.lexicalScore ?? 0,
+          grammarScore: activeSession.grammarScore ?? 0,
+          wpm: activeSession.wordsPerMinute ?? 0,
           hesitationCount: activeSession.hesitationCount ?? 0,
-          strengths: activeSession.detailedFeedback?.strengths || ['Natural rhythm', 'Good collocations'],
-          weaknesses: activeSession.detailedFeedback?.weaknesses || ['Slight pause at topic shift'],
+          strengths: activeSession.detailedFeedback?.strengths ?? [],
+          weaknesses: activeSession.detailedFeedback?.weaknesses ?? [],
         }
       : null
   );
@@ -217,22 +81,35 @@ export const ScoringTab: React.FC = () => {
         durationSeconds: Math.max(15, Math.round(totalSpeechSeconds)),
         wpm: realWpm,
         hesitationCount: totalHesitations,
-        silenceDurations: [0.9, 1.2],
+        silenceDurations: userTurns.flatMap((turn) =>
+          (turn.hesitationMarkers || []).map((marker) => marker.durationSeconds)
+        ),
         contextTitle: activeTopic?.title || 'IELTS Speaking Practice',
         targetLevel: user?.currentLevel && user.currentLevel !== 'unrated' ? user.currentLevel : 'b2',
         dialogue: dialogueTurns,
       });
 
+      if (
+        res.overallScore == null ||
+        res.pronunciationScore == null ||
+        res.fluencyScore == null ||
+        res.lexicalScore == null ||
+        res.grammarScore == null ||
+        !res.detailedFeedback
+      ) {
+        throw new Error('AI returned an incomplete scoring result.');
+      }
+
       const evaluated = {
-        overallScore: res.overallScore ?? 6.0,
-        pronunciationScore: res.pronunciationScore ?? 6.0,
-        fluencyScore: res.fluencyScore ?? 6.0,
-        lexicalScore: res.lexicalScore ?? 6.0,
-        grammarScore: res.grammarScore ?? 6.0,
+        overallScore: res.overallScore,
+        pronunciationScore: res.pronunciationScore,
+        fluencyScore: res.fluencyScore,
+        lexicalScore: res.lexicalScore,
+        grammarScore: res.grammarScore,
         wpm: res.wordsPerMinute,
         hesitationCount: res.hesitationCount,
-        strengths: res.detailedFeedback?.strengths || ['Natural rhythm', 'Clear articulation'],
-        weaknesses: res.detailedFeedback?.weaknesses || ['Further practice on complex subordinating clauses'],
+        strengths: res.detailedFeedback.strengths,
+        weaknesses: res.detailedFeedback.weaknesses,
       };
 
       setEvaluationData(evaluated);
@@ -267,98 +144,8 @@ export const ScoringTab: React.FC = () => {
           detailedFeedback: res.detailedFeedback,
         });
       }
-    } catch {
-      // Deterministic Algorithmic Fallback: 100% reliable evaluation from real metrics
-      const fallbackResult = computeDeterministicIELTSScore({
-        userTurns,
-        totalUserWords,
-        totalSpeechSeconds,
-        realWpm,
-        totalHesitations,
-        topicTitle: activeTopic?.title || 'IELTS Speaking Practice',
-      });
-
-      setEvaluationData(fallbackResult);
-
-      // Sync overall score and practice minutes to user profile and roadmap
-      const fallbackCefr = convertBandToCEFR(fallbackResult.overallScore);
-      const fallbackMinutes = Math.max(1, Math.round(totalSpeechSeconds / 60));
-      if (user) {
-        const updatedUser = {
-          ...user,
-          currentLevel: fallbackCefr,
-          totalPracticeMinutes: (user.totalPracticeMinutes || 0) + fallbackMinutes,
-        };
-        setUser(updatedUser);
-        try {
-          UserStorageService.setUserProfile(updatedUser, user.id);
-        } catch {
-          // ignore
-        }
-      }
-
-      if (activeSession) {
-        setActiveSession({
-          ...activeSession,
-          overallScore: fallbackResult.overallScore,
-          pronunciationScore: fallbackResult.pronunciationScore,
-          fluencyScore: fallbackResult.fluencyScore,
-          lexicalScore: fallbackResult.lexicalScore,
-          grammarScore: fallbackResult.grammarScore,
-          wordsPerMinute: fallbackResult.wpm,
-          hesitationCount: fallbackResult.hesitationCount,
-          detailedFeedback: {
-            summary: 'Evaluated using deterministic IELTS speech metrics algorithm.',
-            strengths: fallbackResult.strengths,
-            weaknesses: fallbackResult.weaknesses,
-            suggestedPhrases: [],
-            grammarCorrections: [],
-            vocabularyEnhancements: [],
-          },
-        });
-      }
-
-      // Persist fallback session to repository for Progress Dashboard
-      try {
-        const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
-        const { BandScore } = await import('../../../domain/value-objects/BandScore');
-        const { SpeechMetrics } = await import('../../../domain/value-objects/SpeechMetrics');
-        const fallbackSession = PSClass.create({
-          id: sessionId,
-          userId: user?.id || 'guest-user',
-          mode: activeSession?.mode || 'ielts_part1',
-          topicId: activeTopic?.id || null,
-        });
-        fallbackSession.startRecording();
-        userTurns.forEach((t) => fallbackSession.appendDialogueTurn(t));
-        fallbackSession.completeRecording(
-          Math.max(15, Math.round(totalSpeechSeconds)),
-          SpeechMetrics.create({
-            wpm: fallbackResult.wpm,
-            hesitationCount: fallbackResult.hesitationCount,
-            silenceDurations: [0.8],
-            totalDurationSeconds: Math.max(15, Math.round(totalSpeechSeconds)),
-          })
-        );
-        fallbackSession.finalizeEvaluation({
-          pronunciationScore: BandScore.create(fallbackResult.pronunciationScore),
-          fluencyScore: BandScore.create(fallbackResult.fluencyScore),
-          lexicalScore: BandScore.create(fallbackResult.lexicalScore),
-          grammarScore: BandScore.create(fallbackResult.grammarScore),
-          detailedFeedback: {
-            summary: 'Evaluated using deterministic IELTS speech metrics algorithm.',
-            strengths: fallbackResult.strengths,
-            weaknesses: fallbackResult.weaknesses,
-            suggestedPhrases: [],
-            grammarCorrections: [],
-            vocabularyEnhancements: [],
-          },
-          aiProviderUsed: 'Deterministic IELTS Engine',
-        });
-        await container.sessionRepository.save(fallbackSession);
-      } catch (e) {
-        console.warn('Fallback session save notice:', e);
-      }
+    } catch (error) {
+      setEvaluationError((error as Error).message || 'AI scoring failed. Please try again.');
     } finally {
       setEvaluating(false);
     }

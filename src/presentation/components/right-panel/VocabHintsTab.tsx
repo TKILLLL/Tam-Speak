@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Volume2, Copy, Check, Lightbulb, BookOpen, Sparkles, RefreshCw } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
@@ -27,11 +27,15 @@ export const VocabHintsTab: React.FC = () => {
     container.speechTTSEngine.speak(text, { rate: 0.9 });
   };
 
-  const handleRefreshHints = async () => {
+  const handleRefreshHints = useCallback(async () => {
     setIsLoadingVocabHints(true);
     try {
-      const topic = activeTopicTitle || 'IELTS Speaking';
-      const prompt = currentExaminerPrompt || lastAIMessage || 'General discussion';
+      const topic = activeTopicTitle.trim();
+      const prompt = (currentExaminerPrompt || lastAIMessage).trim();
+      if (!topic || !prompt) {
+        setAiVocabHints(null);
+        return;
+      }
       const hints = await aiService.generateVocabHints(topic, prompt);
       setAiVocabHints(hints);
     } catch (err) {
@@ -39,7 +43,15 @@ export const VocabHintsTab: React.FC = () => {
     } finally {
       setIsLoadingVocabHints(false);
     }
-  };
+  }, [activeTopicTitle, currentExaminerPrompt, lastAIMessage, setAiVocabHints, setIsLoadingVocabHints]);
+
+  // Refresh only when the actual discussion context changes. AIService caches
+  // the same topic/question pair, so this stays responsive without stale hints.
+  useEffect(() => {
+    if (activeTopicTitle && (currentExaminerPrompt || lastAIMessage)) {
+      void handleRefreshHints();
+    }
+  }, [activeTopicTitle, currentExaminerPrompt, lastAIMessage, handleRefreshHints]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto pr-1 select-none text-xs space-y-4 pb-4">
@@ -102,7 +114,7 @@ export const VocabHintsTab: React.FC = () => {
                           {item.ipa}
                         </span>
                         <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1 rounded border border-emerald-100">
-                          Band {item.band || '8.0'}
+                          Band {item.band}
                         </span>
                       </div>
                       <div className="flex items-center gap-1">

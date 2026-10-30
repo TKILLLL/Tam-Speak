@@ -287,7 +287,7 @@ export class AIService {
    * Features in-memory caching for sub-millisecond tab switching
    */
   public async generateVocabHints(topicTitle: string, currentQuestion: string): Promise<GeneratedVocabHints> {
-    const cacheKey = topicTitle.trim().toLowerCase();
+    const cacheKey = `${topicTitle.trim().toLowerCase()}::${currentQuestion.trim().toLowerCase()}`;
     if (this.vocabHintsCache.has(cacheKey)) {
       return this.vocabHintsCache.get(cacheKey)!;
     }
@@ -343,7 +343,12 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         idioms: [],
       });
 
-      if (parsed.activeKeywords?.length > 0) {
+      if (
+        Array.isArray(parsed.activeKeywords) &&
+        Array.isArray(parsed.collocations) &&
+        Array.isArray(parsed.idioms) &&
+        parsed.activeKeywords.length > 0
+      ) {
         this.vocabHintsCache.set(cacheKey, parsed);
       }
 
