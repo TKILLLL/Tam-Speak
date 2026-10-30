@@ -7,24 +7,6 @@ import { PracticeSession, DialogueTurn } from '../../../domain/entities/Practice
 import { aiService } from '../../../infrastructure/ai/AIService';
 import { SpeechNoiseFilter } from '../../../infrastructure/audio/SpeechNoiseFilter';
 
-const RANDOM_STARTER_TOPICS = [
-  {
-    title: 'Hometown and Memories',
-    context: 'Discuss where you grew up, changes in your hometown, and your favorite local spots.',
-    aiRole: 'IELTS Speaking Examiner',
-  },
-  {
-    title: 'Technology and Daily Routine',
-    context: 'Talk about how smartphones and artificial intelligence impact your daily productivity.',
-    aiRole: 'Curious Tech Journalist',
-  },
-  {
-    title: 'Travel and Memorable Journeys',
-    context: 'Describe an unforgettable holiday trip and a cultural discovery you made.',
-    aiRole: 'Fellow World Traveler',
-  },
-];
-
 export const HoldSpaceToTalk: React.FC = () => {
   const {
     setOrbState,
@@ -86,17 +68,16 @@ export const HoldSpaceToTalk: React.FC = () => {
     const currentUserId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
 
     if (!activeTopic) {
-      const randomStarter = RANDOM_STARTER_TOPICS[Math.floor(Math.random() * RANDOM_STARTER_TOPICS.length)]!;
       currentTopicId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `topic-${Date.now()}`;
       setActiveTopic({
         id: currentTopicId,
         userId: currentUserId,
-        title: randomStarter.title,
-        description: randomStarter.context,
-        contextPrompt: randomStarter.context,
-        aiRole: randomStarter.aiRole,
+        title: 'AI-selected speaking topic',
+        description: '',
+        contextPrompt: '',
+        aiRole: 'IELTS Speaking Examiner',
         userRole: 'Speaking Candidate',
-        targetKeywords: ['perspective', 'significant', 'memorable'],
+        targetKeywords: [],
         targetLevel: 'b2',
         isPublic: false,
         createdAt: new Date().toISOString(),
@@ -271,18 +252,18 @@ export const HoldSpaceToTalk: React.FC = () => {
         } else {
           setActivePart('part2');
           setMockTestProgress({ ...currentMock, currentPart: 2, questionIndex: 0 });
-          plannedNextQuestion = `Now let us proceed to Part 2: Individual Long Turn. Your topic is: "${activeTopicTitle || 'Your memorable experience'}". Please describe a significant moment related to this topic, who was with you, what occurred, and why it influenced you. You have 1 minute to prepare notes, then speak for up to 2 minutes. When ready, press the microphone button to begin!`;
+          plannedNextQuestion = '';
         }
       } else if (currentMock.currentPart === 2) {
         setActivePart('part3');
         setMockTestProgress({ ...currentMock, currentPart: 3, questionIndex: 0 });
-        plannedNextQuestion = `Thank you. Now let us move on to Part 3: Two-Way Analytical Discussion on "${activeTopicTitle || 'this topic'}". How do you see the broader societal impact of this issue developing over the next decade?`;
+        plannedNextQuestion = '';
       } else if (currentMock.currentPart === 3) {
         const nextIdx = currentMock.questionIndex + 1;
         if (nextIdx < 3) {
           setMockTestProgress({ ...currentMock, questionIndex: nextIdx });
         } else {
-          plannedNextQuestion = 'Thank you very much. That concludes your Full IELTS Speaking Mock Test. Let us analyze your comprehensive band rating and detailed feedback now.';
+          plannedNextQuestion = '';
           shouldAutoTriggerScoring = true;
           setMockTestProgress(null);
         }
@@ -353,7 +334,10 @@ export const HoldSpaceToTalk: React.FC = () => {
       });
 
       // 8. Append AI Dialogue Turn to Session Store
-      const replyText = `${turnResult.feedbackTransition} ${turnResult.nextQuestion}`.trim();
+      const replyText = [turnResult.feedbackTransition, turnResult.nextQuestion].filter(Boolean).join(' ').trim();
+      if (!replyText) {
+        throw new Error('Gemini returned no examiner response.');
+      }
       const aiTurn: DialogueTurn = {
         id: `turn-ai-${Date.now()}`,
         speaker: 'ai',

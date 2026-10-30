@@ -291,11 +291,9 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   setIsFallbackActive: (isFallbackActive) => set({ isFallbackActive }),
 
   // Interactive Transcript
-  lastAIMessage:
-    'Welcome to TamSpeak. Choose a topic from Quick Start and press and hold Space to begin speaking!',
+  lastAIMessage: '',
   setLastAIMessage: (message) => set({ lastAIMessage: message }),
-  currentExaminerPrompt:
-    'Welcome to TamSpeak. Choose a topic from Quick Start and press and hold Space to begin speaking!',
+  currentExaminerPrompt: '',
   setCurrentExaminerPrompt: (prompt) => set({ currentExaminerPrompt: prompt, lastAIMessage: prompt }),
   isLastMessageHidden: false,
   toggleHideLastMessage: () => set((state) => ({ isLastMessageHidden: !state.isLastMessageHidden })),
@@ -394,16 +392,10 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
       });
     });
 
-    const initialGreeting =
-      config.initialGreeting ||
-      `Welcome to ${config.topicTitle}. When you are ready, press and hold Space to speak!`;
-
-    const initialTurn: DialogueTurn = {
-      id: `turn-ai-init-${Date.now()}`,
-      speaker: 'ai',
-      text: initialGreeting,
-      timestampSeconds: 0,
-    };
+    const initialGreeting = config.initialGreeting.trim();
+    const initialTurns: DialogueTurn[] = initialGreeting
+      ? [{ id: `turn-ai-init-${Date.now()}`, speaker: 'ai', text: initialGreeting, timestampSeconds: 0 }]
+      : [];
 
     set({
       activePart: config.part,
@@ -411,8 +403,8 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
       practiceMode: (config.mode as any) || get().practiceMode,
       currentExaminerPrompt: initialGreeting,
       lastAIMessage: initialGreeting,
-      dialogueTurns: [initialTurn],
-      messages: [initialTurn],
+      dialogueTurns: initialTurns,
+      messages: initialTurns,
       activeSession: null,
       topicChangeWarningModalOpen: false,
       pendingTargetConfig: null,

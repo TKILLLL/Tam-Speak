@@ -7,13 +7,11 @@ import {
   User,
   Bot,
   Lightbulb,
-  CheckCircle2,
   Eye,
   AlertCircle,
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
-import { WaveformAudioPlayer } from './WaveformAudioPlayer';
 import { MiniScratchpadDrawer } from './MiniScratchpadDrawer';
 
 export const QnATab: React.FC = () => {
@@ -71,15 +69,7 @@ export const QnATab: React.FC = () => {
     inferredSentence?: string
   ) => {
     if (!mistakes || mistakes.length === 0) {
-      return (
-        <div>
-          <p className="text-slate-800 leading-relaxed font-normal">{text}</p>
-          <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold mt-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Natural and Accurate</span>
-          </div>
-        </div>
-      );
+      return <p className="text-slate-800 leading-relaxed font-normal">{text}</p>;
     }
 
     const mistakeMap = new Map(mistakes.map((m) => [m.word.toLowerCase(), m]));
@@ -299,20 +289,6 @@ export const QnATab: React.FC = () => {
                   </div>
                 )}
 
-                {/* If User Turn: Render Waveform with Red Hesitation Markers */}
-                {isUser && (
-                  <WaveformAudioPlayer
-                    audioUrl={turn.audioUrl}
-                    recordingId={turn.audioBlobId}
-                    durationSeconds={
-                      turn.actualDurationSeconds && turn.actualDurationSeconds > 0
-                        ? turn.actualDurationSeconds
-                        : Math.max(2, turn.text.split(' ').length * 0.45)
-                    }
-                    hesitations={turn.hesitationMarkers || []}
-                  />
-                )}
-
                 {/* Expandable AI Feedback & IPA suggestions */}
                 {isUser && (
                   <div className="mt-2 pt-2 border-t border-slate-200/60">
@@ -361,21 +337,16 @@ export const QnATab: React.FC = () => {
                               ))}
                             </div>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            <span>Great job! Sentence had clear articulation and natural phrasing.</span>
-                          </div>
-                        )}
+                        ) : null}
 
-                        <div>
+                        {turn.suggestedUpgrade && <div>
                           <span className="font-bold text-slate-700 block mb-0.5">
                             Native Phrasing Upgrade:
                           </span>
                           <p className="text-emerald-800 bg-emerald-50/70 p-1.5 rounded-lg border border-emerald-200 font-medium">
-                            "{turn.suggestedUpgrade || 'From my personal viewpoint, this has consistently played an instrumental role.'}"
+                            "{turn.suggestedUpgrade}"
                           </p>
-                        </div>
+                        </div>}
                       </div>
                     )}
                   </div>

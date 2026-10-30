@@ -1,6 +1,6 @@
 import { useTamSpeakStore } from '../../presentation/store';
 import { normalizeGeminiContents } from './normalizeGeminiContents';
-import { UserStorageService } from '../security/UserStorageService';
+import { SettingsStore } from '../security/SettingsStore';
 
 // Ephemeral in-memory personal BYOK key (RAM-only per authenticated user)
 let inMemoryPersonalApiKey: string | null = null;
@@ -46,7 +46,7 @@ export function getActiveGeminiApiKey(): string {
   // 2. User-isolated vault key for current logged in user
   try {
     const currentUserId = useTamSpeakStore.getState().user?.id;
-    const userVaultKey = UserStorageService.getUserPersonalApiKey(currentUserId);
+    const userVaultKey = SettingsStore.getGeminiApiKey(currentUserId);
     if (userVaultKey && userVaultKey.trim().length > 0) {
       inMemoryPersonalApiKey = userVaultKey.trim();
       return inMemoryPersonalApiKey;
@@ -101,10 +101,15 @@ export interface PlacementTestResult {
   weaknesses: string[];
 }
 
+export interface PlacementQuestion {
+  label: string;
+  prompt: string;
+}
+
 /**
  * AIService: 100% Google Gemini REST Architecture
  * - Uses Google Generative Language REST fetch with 'X-goog-api-key' Header
- * - Fallback Default Key configured via base64 encoded token
+ * - API key resolution is user-scoped through SettingsStore/UserStorageService
  * - Auto-select Model Fallback Chain: gemini-3.8-flash -> gemini-3.5-flash-lite -> gemini-3.6-flash -> ...
  * - Automatically updates Header badge on model failover
  */
@@ -413,14 +418,14 @@ Generate JSON evaluation and transition now.`;
     });
 
     const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
-      feedbackTransition: 'Thank you for sharing your thoughts.',
-      nextQuestion: params.nextPlannedQuestion || 'Could you elaborate further on that aspect?',
-      suggestedUpgrade: 'From my personal viewpoint, this has consistently played an instrumental role in shaping my mindset.',
-      inferredIntendedSentence: params.userAnswer,
+      feedbackTransition: '',
+      nextQuestion: params.nextPlannedQuestion || '',
+      suggestedUpgrade: '',
+      inferredIntendedSentence: undefined,
       mistakes: [],
       speechAnalysis: {
-        fluencyNote: 'Good natural cadence and responsiveness.',
-        grammarNote: 'Solid sentence structures.',
+        fluencyNote: '',
+        grammarNote: '',
       },
     });
 
@@ -476,6 +481,21 @@ Generate a warm, spontaneous, and conversational opening greeting to kick off to
     });
 
     return raw.trim().replace(/^["']|["']$/g, '');
+  }
+
+  public async generatePlacementQuestions(): Promise<PlacementQuestion[]> {
+    const raw = await this.generateContent({
+      systemPrompt: `Generate exactly three distinct spoken-English placement questions. Cover personal experience, preferences, and an opinion requiring explanation. Return only valid JSON in this shape: {"questions":[{"label":"short label","prompt":"question"}]}. Do not use generic filler or fixed sample questions.`,
+      messages: [{ role: 'user', content: 'Create the placement questions now.' }],
+      temperature: 0.7,
+      jsonMode: true,
+      maxOutputTokens: 400,
+      timeoutMs: 10_000,
+    });
+    const parsed = this.cleanAndParseJson<{ questions?: PlacementQuestion[] }>(raw, { questions: [] });
+    return (parsed.questions || [])
+      .filter((question) => question?.label?.trim() && question?.prompt?.trim())
+      .slice(0, 3);
   }
 
   /**

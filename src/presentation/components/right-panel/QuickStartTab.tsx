@@ -11,7 +11,7 @@ import {
 import { useTamSpeakStore, ActivePartType } from '../../store';
 import { CustomTopicBuilder } from './CustomTopicBuilder';
 import { container } from '../../../di/DIContainer';
-import { PracticeMode, DialogueTurn } from '../../../domain/entities/PracticeSession';
+import { PracticeMode } from '../../../domain/entities/PracticeSession';
 import { aiService } from '../../../infrastructure/ai/AIService';
 
 const mapPresetToActivePart = (presetId: string, mode: string): ActivePartType => {
@@ -225,7 +225,7 @@ export const QuickStartTab: React.FC = () => {
       contextPrompt: preset.description,
       aiRole,
       userRole,
-      targetKeywords: ['perspective', 'notably', 'consequently'],
+      targetKeywords: [],
       targetLevel,
       isPublic: false,
       createdAt: new Date().toISOString(),
@@ -281,8 +281,9 @@ export const QuickStartTab: React.FC = () => {
         aiRole,
         userRole,
       });
-    } catch {
-      greeting = `Welcome to our speaking practice session on "${title}". Could you please introduce your perspective on this topic?`;
+    } catch (error) {
+      console.warn('Could not generate the opening prompt:', error);
+      greeting = '';
     }
 
     if (mode === 'ielts_full_mock') {
@@ -314,23 +315,28 @@ export const QuickStartTab: React.FC = () => {
       });
 
     // 7. Push initial greeting to dialogueTurns so Q&A displays it immediately
-    const initialTurn: DialogueTurn = {
-      id: `turn-ai-greeting-${Date.now()}`,
-      speaker: 'ai',
-      text: greeting,
-      timestampSeconds: 0,
-    };
-    addDialogueTurn(initialTurn);
+    if (greeting) {
+      addDialogueTurn({
+        id: `turn-ai-greeting-${Date.now()}`,
+        speaker: 'ai',
+        text: greeting,
+        timestampSeconds: 0,
+      });
+    }
 
     // 8. Speak greeting & switch to Q&A
     setOrbState('speaking');
     setShowTopicPicker(false);
     setRightPanelTab('qna');
 
-    container.speechTTSEngine.speak(greeting, {
-      onEnd: () => setOrbState('idle'),
-      onError: () => setOrbState('idle'),
-    });
+    if (greeting) {
+      container.speechTTSEngine.speak(greeting, {
+        onEnd: () => setOrbState('idle'),
+        onError: () => setOrbState('idle'),
+      });
+    } else {
+      setOrbState('idle');
+    }
   };
 
   const handleStartPractice = (presetToUse?: PresetCard, topicTitle?: string) => {

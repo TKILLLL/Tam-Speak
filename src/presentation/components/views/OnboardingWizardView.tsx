@@ -13,24 +13,6 @@ import { aiService, PlacementTestResult } from '../../../infrastructure/ai/AISer
 import { container } from '../../../di/DIContainer';
 import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
 
-const PLACEMENT_QUESTIONS = [
-  {
-    id: 'q1',
-    label: 'Câu 1: Giới thiệu bản thân & Cuộc sống hàng ngày',
-    prompt: 'Could you please introduce yourself and describe what a typical day looks like for you?',
-  },
-  {
-    id: 'q2',
-    label: 'Câu 2: Sở thích & Thời gian rảnh rỗi',
-    prompt: 'What do you enjoy doing in your leisure time or over the weekend, and why do you find it relaxing?',
-  },
-  {
-    id: 'q3',
-    label: 'Câu 3: Quan điểm về Công nghệ & Giao tiếp',
-    prompt: 'In your opinion, how has modern technology transformed the way human beings communicate with one another?',
-  },
-];
-
 export const OnboardingWizardView: React.FC = () => {
   const { user, setUser, setHasCompletedOnboarding, setCurrentView } = useTamSpeakStore();
 
@@ -69,7 +51,8 @@ export const OnboardingWizardView: React.FC = () => {
 
   // Step 2: Placement Test 3 Answers
   const [currentQIndex, setCurrentQIndex] = useState(0);
-  const [answers, setAnswers] = useState<string[]>(['', '', '']);
+  const [placementQuestions, setPlacementQuestions] = useState<Array<{ label: string; prompt: string }>>([]);
+  const [answers, setAnswers] = useState<string[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingText, setRecordingText] = useState('');
   const transcriptBufferRef = useRef('');
@@ -77,6 +60,18 @@ export const OnboardingWizardView: React.FC = () => {
   // Step 3: Evaluation Result
   const [evaluating, setEvaluating] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState<PlacementTestResult | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    aiService.generatePlacementQuestions().then((questions) => {
+      if (!active) return;
+      setPlacementQuestions(questions);
+      setAnswers(Array.from({ length: questions.length }, () => ''));
+    }).catch(() => {
+      if (active) setPlacementQuestions([]);
+    });
+    return () => { active = false; };
+  }, []);
 
   const startRecording = async () => {
     try {
@@ -112,7 +107,7 @@ export const OnboardingWizardView: React.FC = () => {
   };
 
   const handleNextQuestion = () => {
-    if (currentQIndex < PLACEMENT_QUESTIONS.length - 1) {
+    if (currentQIndex < placementQuestions.length - 1) {
       setCurrentQIndex(currentQIndex + 1);
     }
   };
@@ -127,7 +122,7 @@ export const OnboardingWizardView: React.FC = () => {
     setEvaluating(true);
     setStep(3);
 
-    const questionsWithAnswers = PLACEMENT_QUESTIONS.map((q, idx) => ({
+    const questionsWithAnswers = placementQuestions.map((q, idx) => ({
       question: q.prompt,
       answer:
         answers[idx]?.trim() ||
@@ -307,11 +302,11 @@ export const OnboardingWizardView: React.FC = () => {
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">
-                  {PLACEMENT_QUESTIONS[currentQIndex]?.label}
+                  {placementQuestions[currentQIndex]?.label}
                 </span>
                 <button
                   type="button"
-                  onClick={() => speakPrompt(PLACEMENT_QUESTIONS[currentQIndex]!.prompt)}
+                  onClick={() => speakPrompt(placementQuestions[currentQIndex]?.prompt || '')}
                   title="Nghe câu hỏi"
                   className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-teal-700"
                 >
@@ -320,7 +315,7 @@ export const OnboardingWizardView: React.FC = () => {
                 </button>
               </div>
               <p className="text-sm font-semibold text-slate-900 leading-relaxed">
-                "{PLACEMENT_QUESTIONS[currentQIndex]?.prompt}"
+                "{placementQuestions[currentQIndex]?.prompt}"
               </p>
             </div>
 
@@ -386,7 +381,7 @@ export const OnboardingWizardView: React.FC = () => {
                   </button>
                 )}
 
-                {currentQIndex < PLACEMENT_QUESTIONS.length - 1 ? (
+                {currentQIndex < placementQuestions.length - 1 ? (
                   <button
                     type="button"
                     onClick={handleNextQuestion}

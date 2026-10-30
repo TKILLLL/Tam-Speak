@@ -52,7 +52,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey,
+          'X-goog-api-key': apiKey.trim(),
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
@@ -73,9 +73,7 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         }
 
         if (response.status === 400) {
-          const fatalErr = new Error(
-            `Cấu trúc yêu cầu không hợp lệ (HTTP 400): ${redactedError.slice(0, 160)}`
-          );
+          const fatalErr = new Error(`Gemini API Error [HTTP 400]: ${redactedError}`);
           (fatalErr as any).isFatalAuthOrClientError = true;
           throw fatalErr;
         }

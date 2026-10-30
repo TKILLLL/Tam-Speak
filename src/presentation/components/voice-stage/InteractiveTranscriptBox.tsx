@@ -15,7 +15,7 @@ export const InteractiveTranscriptBox: React.FC = () => {
     setOrbState,
   } = useTamSpeakStore();
 
-  const textToDisplay = lastAIMessage || currentExaminerPrompt || 'Welcome to TamSpeak. Hold Space to start speaking!';
+  const textToDisplay = lastAIMessage || currentExaminerPrompt;
 
   const [isPlayingReplay, setIsPlayingReplay] = useState(false);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);

@@ -15,26 +15,8 @@ export const RawDataStudioView: React.FC = () => {
   const [result, setResult] = useState<IngestionResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const sampleMarkdown = `# Accommodation and Housing
-- What kind of housing do you live in? [apartment, suburban, spacious]
-- Do you plan to move to a different home in the future? [relocate, countryside]
-- What do you like most about your room? [sunlight, cozy, minimalist]
-
-# Environmental Protection
-- What environmental issues are most serious in your country? [pollution, emissions]
-- How can individuals reduce their plastic waste? [reusable, biodegradable]`;
-
-  const sampleCSV = `category,topic,part,questionText,targetKeywords
-ielts_part1,Technology & Daily Life,1,How often do you use your smartphone?,essential;connectivity
-ielts_part1,Technology & Daily Life,1,Do you prefer reading physical books or e-books?,tactile;convenience
-ielts_part2,Memorable Journey,2,Describe a road trip or holiday you enjoyed,breathtaking;scenic;memorable`;
-
   const handleLoadSample = () => {
-    if (targetType === 'md_questions') {
-      setContent(sampleMarkdown);
-    } else if (targetType === 'csv_questions') {
-      setContent(sampleCSV);
-    }
+    setContent('');
   };
 
   const handleIngest = async () => {
@@ -150,7 +132,7 @@ ielts_part2,Memorable Journey,2,Describe a road trip or holiday you enjoyed,brea
                 onClick={handleLoadSample}
                 className="text-[11px] text-teal-700 hover:text-teal-800 font-semibold"
               >
-                Fill Sample Data
+                Clear editor
               </button>
             </div>
             <textarea
