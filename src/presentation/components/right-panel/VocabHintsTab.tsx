@@ -16,6 +16,12 @@ export const VocabHintsTab: React.FC = () => {
   } = useTamSpeakStore();
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const hasHints = Boolean(
+    aiVocabHints &&
+      (aiVocabHints.activeKeywords?.length ||
+        aiVocabHints.collocations?.length ||
+        aiVocabHints.idioms?.length)
+  );
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -86,7 +92,7 @@ export const VocabHintsTab: React.FC = () => {
           <div className="h-16 bg-slate-100 rounded-xl animate-pulse" />
           <div className="h-16 bg-slate-100 rounded-xl animate-pulse" />
         </div>
-      ) : aiVocabHints ? (
+      ) : aiVocabHints && hasHints ? (
         <>
           {/* Active Band 7.5 - 8.5 Keywords */}
           {aiVocabHints.activeKeywords && aiVocabHints.activeKeywords.length > 0 && (

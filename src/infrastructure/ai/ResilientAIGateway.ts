@@ -313,10 +313,11 @@ export class ResilientAIGateway implements IAIGateway {
     options?: {
       maxOutputTokens?: number;
       timeoutMs?: number;
+      overallDeadlineMs?: number;
     }
   ): Promise<{ response: string; providerUsed: string }> {
     const errors: string[] = [];
-    const overallDeadline = Date.now() + 6_000; // Hard ceiling of 6.0s (capped strictly at 5-7s)
+    const overallDeadline = Date.now() + (options?.overallDeadlineMs ?? 6_000);
 
     for (let i = 0; i < providerChain.length; i++) {
       const remainingTime = overallDeadline - Date.now();
@@ -444,7 +445,8 @@ export class ResilientAIGateway implements IAIGateway {
       0.3,
       {
         maxOutputTokens: 1500,
-        timeoutMs: 15_000,
+        timeoutMs: 9_000,
+        overallDeadlineMs: 15_000,
       }
     );
 

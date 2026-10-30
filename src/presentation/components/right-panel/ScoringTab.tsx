@@ -63,7 +63,14 @@ export const ScoringTab: React.FC = () => {
     0
   );
   const realWpm = totalSpeechSeconds > 0 ? Math.round((totalUserWords / totalSpeechSeconds) * 60) : 0;
-  const totalHesitations = userTurns.reduce((sum, d) => sum + (d.hesitationsDetected ? 1 : 0), 0);
+  // Use the actual marker list so SpeechMetrics receives a count that exactly
+  // matches the pause durations passed below.
+  const pauseDurations = userTurns.flatMap((turn) =>
+    (turn.hesitationMarkers || [])
+      .map((marker) => marker.durationSeconds)
+      .filter((duration) => duration >= 0.8)
+  );
+  const totalHesitations = pauseDurations.length;
   const hasEnoughData = userTurns.length >= 3 || totalUserWords >= 15;
 
   const handleEvaluate = async () => {
@@ -81,9 +88,7 @@ export const ScoringTab: React.FC = () => {
         durationSeconds: Math.max(15, Math.round(totalSpeechSeconds)),
         wpm: realWpm,
         hesitationCount: totalHesitations,
-        silenceDurations: userTurns.flatMap((turn) =>
-          (turn.hesitationMarkers || []).map((marker) => marker.durationSeconds)
-        ),
+        silenceDurations: pauseDurations,
         contextTitle: activeTopic?.title || 'IELTS Speaking Practice',
         targetLevel: user?.currentLevel && user.currentLevel !== 'unrated' ? user.currentLevel : 'b2',
         dialogue: dialogueTurns,
