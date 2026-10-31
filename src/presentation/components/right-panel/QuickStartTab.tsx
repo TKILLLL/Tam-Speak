@@ -152,8 +152,8 @@ export const QuickStartTab: React.FC = () => {
     removeCustomRoleplayTopic,
   } = useTamSpeakStore();
 
-  const [activeCategory, setActiveCategory] = useState<'ielts' | 'conversation'>('ielts');
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('p1');
+  const [activeCategory, setActiveCategory] = useState<'ielts' | 'conversation'>(() => user ? 'ielts' : 'conversation');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(() => user ? 'p1' : 'c1');
   const [showTopicPicker, setShowTopicPicker] = useState(false);
   const [isBuildingCustomTopic, setIsBuildingCustomTopic] = useState(false);
 
@@ -180,8 +180,9 @@ export const QuickStartTab: React.FC = () => {
     userRole: ct.userRole,
   }));
 
-  const presets =
-    activeCategory === 'ielts'
+  const presets = !user
+    ? DEFAULT_CONVERSATION_PRESETS.slice(0, 2)
+    : activeCategory === 'ielts'
       ? IELTS_PRESETS
       : [...customPresets, ...DEFAULT_CONVERSATION_PRESETS];
 
@@ -276,7 +277,7 @@ export const QuickStartTab: React.FC = () => {
     try {
       greeting = await aiService.generateTopicOpening({
         topicTitle: title,
-        mode,
+        mode: !user ? 'roleplay' : mode,
         part: calculatedPart,
         aiRole,
         userRole,
@@ -364,7 +365,12 @@ export const QuickStartTab: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto pr-1 select-none">
       {/* Category Toggle: IELTS vs Conversation Practice */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl mb-3">
+      {!user && (
+        <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-[11px] text-teal-800">
+          Dùng thử Conversation Practice: tối đa 4 lượt trả lời.
+        </div>
+      )}
+      {user && <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl mb-3">
         <button
           onClick={() => {
             setActiveCategory('ielts');
@@ -396,10 +402,10 @@ export const QuickStartTab: React.FC = () => {
           <MessageSquare className={`w-3.5 h-3.5 ${activeCategory === 'conversation' ? 'text-teal-600' : 'text-slate-400'}`} />
           <span>Roleplay & Chat</span>
         </button>
-      </div>
+      </div>}
 
       {/* Sleek Practice Controls Bar (Feedback Language & Target Level) */}
-      <div className="flex items-center justify-between gap-2 px-1 mb-3.5 text-xs">
+      {user && <div className="flex items-center justify-between gap-2 px-1 mb-3.5 text-xs">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-bold text-slate-500">Feedback:</span>
           <div className="flex p-0.5 bg-slate-100 rounded-lg">
@@ -440,7 +446,7 @@ export const QuickStartTab: React.FC = () => {
             <option value="c2">C2 (9.0)</option>
           </select>
         </div>
-      </div>
+      </div>}
 
       {/* TOPIC PICKER VIEW IF ACTIVE */}
       {showTopicPicker ? (
@@ -476,7 +482,7 @@ export const QuickStartTab: React.FC = () => {
       ) : (
         <>
           {/* Create Custom Topic Banner in Conversation Mode */}
-          {activeCategory === 'conversation' && (
+          {user && activeCategory === 'conversation' && (
             <button
               onClick={() => setIsBuildingCustomTopic(true)}
               className="w-full mb-3.5 p-3 rounded-2xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs shadow-xs hover:shadow transition-all flex items-center justify-between group"

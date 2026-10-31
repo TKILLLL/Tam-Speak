@@ -10,7 +10,15 @@ import { setPersonalApiKey } from './infrastructure/ai/AIService';
 const ADMIN_EMAILS = ['tamphan@tamspeak.com', 'admin@tamspeak.com'];
 
 export const App: React.FC = () => {
-  const { setUser, loadUserDataForUser } = useTamSpeakStore();
+  const {
+    setUser,
+    loadUserDataForUser,
+    setAuthReady,
+    openAuthModal,
+    setAuthRequired,
+    closeAuthModal,
+    setGuestTrialTurns,
+  } = useTamSpeakStore();
   const previousUserIdRef = useRef<string | null>(null);
 
   // Startup: Purge legacy global un-isolated storage keys
@@ -19,9 +27,15 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) {
-      return;
-    }
+    const registerVisit = () => {
+      try {
+        const returning = window.localStorage.getItem('tamspeak_visited_before') === 'true';
+        window.localStorage.setItem('tamspeak_visited_before', 'true');
+        return returning;
+      } catch {
+        return false;
+      }
+    };
 
     const loadUserProfile = async (userId: string, email: string, metadata: Record<string, any>) => {
       const lowerEmail = (email || '').toLowerCase();
@@ -33,6 +47,8 @@ export const App: React.FC = () => {
 
       // 1. Hydrate user-scoped preferences and custom topics
       loadUserDataForUser(userId);
+      setAuthRequired(false);
+      closeAuthModal();
 
       // 2. Hydrate user-scoped personal Gemini API key if present in user vault
       const userPersonalKey = UserStorageService.getUserPersonalApiKey(userId);
@@ -92,19 +108,44 @@ export const App: React.FC = () => {
       });
     };
 
-    // 1. Initial check for existing session in localStorage
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Initialize visitor access and resume any existing authenticated session.
+    const isReturningVisitor = registerVisit();
+    try {
+      const storedTrialTurns = Number(window.localStorage.getItem('tamspeak_guest_trial_turns') || 0);
+      setGuestTrialTurns(Number.isFinite(storedTrialTurns) ? storedTrialTurns : 0);
+    } catch {
+      setGuestTrialTurns(0);
+    }
+    if (!isSupabaseConfigured()) {
+      if (isReturningVisitor) {
+        setAuthRequired(true);
+        openAuthModal('signin', true);
+      }
+      setAuthReady(true);
+      return;
+    }
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         previousUserIdRef.current = session.user.id;
-        loadUserProfile(
+        await loadUserProfile(
           session.user.id,
           session.user.email || '',
           session.user.user_metadata || {}
         );
+      } else if (isReturningVisitor) {
+        setAuthRequired(true);
+        openAuthModal('signin', true);
       } else {
-        AuthBoundaryGuard.resetAllStoresOnAuthChange(previousUserIdRef.current);
         previousUserIdRef.current = null;
       }
+      setAuthReady(true);
+    }).catch(() => {
+      if (isReturningVisitor) {
+        setAuthRequired(true);
+        openAuthModal('signin', true);
+      }
+      setAuthReady(true);
     });
 
     // 2. Subscribe to auth state transitions
@@ -112,25 +153,32 @@ export const App: React.FC = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session?.user) {
-        AuthBoundaryGuard.resetAllStoresOnAuthChange(previousUserIdRef.current);
-        previousUserIdRef.current = null;
+        if (event === 'SIGNED_OUT') {
+          AuthBoundaryGuard.resetAllStoresOnAuthChange(previousUserIdRef.current);
+          setAuthRequired(true);
+          openAuthModal('signin', true);
+          setAuthReady(true);
+          previousUserIdRef.current = null;
+        }
       } else if (session.user) {
         if (previousUserIdRef.current && previousUserIdRef.current !== session.user.id) {
           AuthBoundaryGuard.resetAllStoresOnAuthChange(previousUserIdRef.current);
         }
         previousUserIdRef.current = session.user.id;
-        loadUserProfile(
+        void loadUserProfile(
           session.user.id,
           session.user.email || '',
           session.user.user_metadata || {}
-        );
+        ).finally(() => setAuthReady(true));
+        setAuthRequired(false);
+        closeAuthModal();
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [setUser, loadUserDataForUser]);
+  }, [setUser, loadUserDataForUser, setAuthReady, openAuthModal, setAuthRequired, closeAuthModal, setGuestTrialTurns]);
 
   return <MainLayout />;
 };

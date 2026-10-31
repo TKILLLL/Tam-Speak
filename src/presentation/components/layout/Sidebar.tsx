@@ -54,6 +54,7 @@ export const Sidebar: React.FC = () => {
       userEmail.includes('tamphan')
     );
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  const guestNavItems = user ? visibleNavItems : visibleNavItems.filter((item) => item.id === 'conversation');
 
   return (
     <aside
@@ -113,7 +114,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Streamlined 5 Navigation Menu Items */}
       <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {visibleNavItems.map((item) => {
+        {guestNavItems.map((item) => {
           const Icon = item.icon;
           const isActive =
             currentView === item.id ||
@@ -122,15 +123,15 @@ export const Sidebar: React.FC = () => {
           return (
             <button
               key={item.id}
-              disabled={!hasCompletedOnboarding}
+              disabled={item.id !== 'conversation' && !hasCompletedOnboarding}
               onClick={() => {
-                if (hasCompletedOnboarding) {
+                if (item.id === 'conversation' || hasCompletedOnboarding) {
                   setCurrentView(item.id);
                 }
               }}
-              title={!hasCompletedOnboarding ? 'Vui lòng hoàn thành bài kiểm tra xếp lớp trước' : item.label}
+              title={item.id !== 'conversation' && !hasCompletedOnboarding ? 'Vui lòng hoàn thành bài kiểm tra xếp lớp trước' : item.label}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all group ${
-                !hasCompletedOnboarding ? 'opacity-40 cursor-not-allowed' : ''
+                item.id !== 'conversation' && !hasCompletedOnboarding ? 'opacity-40 cursor-not-allowed' : ''
               } ${
                 isActive
                   ? 'bg-gradient-to-r from-teal-50/90 to-cyan-50/80 text-teal-900 font-semibold shadow-xs border border-teal-200/60'

@@ -34,6 +34,9 @@ export const HoldSpaceToTalk: React.FC = () => {
     dialogueTurns,
     setAiVocabHints,
     setIsLoadingVocabHints,
+    guestTrialTurns,
+    incrementGuestTrialTurns,
+    openAuthModal,
   } = useTamSpeakStore();
 
   const [isHolding, setIsHolding] = useState(false);
@@ -48,6 +51,14 @@ export const HoldSpaceToTalk: React.FC = () => {
 
   const startVoiceInput = useCallback(async () => {
     if (isHoldingRef.current) return;
+    if (!user && !activeSession) {
+      setRightPanelTab('quick_start');
+      return;
+    }
+    if (!user && guestTrialTurns >= 4) {
+      openAuthModal('signup', true);
+      return;
+    }
     isHoldingRef.current = true;
     setIsHolding(true);
     setOrbState('listening');
@@ -161,7 +172,7 @@ export const HoldSpaceToTalk: React.FC = () => {
         alert('Microphone permission was denied. Please allow microphone access in your browser settings to practice speaking.');
       }
     }
-  }, [activeSession, activeTopic, audioAnalyzer, setActiveSession, setActiveTopic, setLiveSpeechTranscript, setOrbState, user]);
+  }, [activeSession, activeTopic, audioAnalyzer, guestTrialTurns, openAuthModal, setActiveSession, setActiveTopic, setLiveSpeechTranscript, setOrbState, setRightPanelTab, user]);
 
   const stopVoiceInput = useCallback(async () => {
     if (!isHoldingRef.current) return;
@@ -221,6 +232,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       return;
     }
     spokenTranscript = validation.cleanedText;
+    const guestTrialTurn = !user ? incrementGuestTrialTurns() : null;
 
     // 4. Optimistic UI: Append User Dialogue Turn immediately (0ms latency feedback)
     const userTurnId = `turn-user-${Date.now()}`;
@@ -362,6 +374,9 @@ export const HoldSpaceToTalk: React.FC = () => {
         onEnd: () => setOrbState('idle'),
         onError: () => setOrbState('idle'),
       });
+      if (guestTrialTurn !== null && guestTrialTurn >= 4) {
+        openAuthModal('signup', true);
+      }
     } catch (err) {
       console.error('AI examiner turn error:', err);
       setOrbState('idle');
@@ -369,6 +384,9 @@ export const HoldSpaceToTalk: React.FC = () => {
         (err as Error).message ||
         'Lỗi kết nối AI. Vui lòng kiểm tra API Key trong mục Settings.';
       setLastAIMessage(`[Lỗi kết nối AI] ${errorMsg}`);
+      if (guestTrialTurn !== null && guestTrialTurn >= 4) {
+        openAuthModal('signup', true);
+      }
     }
   }, [
     activePart,
@@ -388,6 +406,8 @@ export const HoldSpaceToTalk: React.FC = () => {
     setIsLoadingVocabHints,
     setLastAIMessage,
     setMockTestProgress,
+    incrementGuestTrialTurns,
+    openAuthModal,
     setOrbState,
     setRightPanelTab,
     user,

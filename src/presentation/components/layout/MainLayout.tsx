@@ -28,6 +28,9 @@ const ViewLoadingFallback: React.FC = () => (
 export const MainLayout: React.FC = () => {
   const {
     currentView,
+    user,
+    authReady,
+    authRequired,
     hasCompletedOnboarding,
     rightPanelCollapsed,
     setRightPanelCollapsed,
@@ -64,7 +67,11 @@ export const MainLayout: React.FC = () => {
   };
 
   const renderCurrentView = () => {
-    if (!hasCompletedOnboarding) {
+    if (!authReady) return <ViewLoadingFallback />;
+    if (authRequired && !user) {
+      return <div className="flex-1 flex items-center justify-center text-sm text-slate-500">Đăng nhập để tiếp tục sử dụng TamSpeak.</div>;
+    }
+    if (user && !hasCompletedOnboarding) {
       return (
         <ErrorBoundary fallbackTitle="Không thể tải hướng dẫn bắt đầu">
           <Suspense fallback={<ViewLoadingFallback />}>
@@ -170,7 +177,7 @@ export const MainLayout: React.FC = () => {
           </main>
 
           {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
-          {hasCompletedOnboarding && currentView === 'conversation' && !rightPanelCollapsed && (
+          {(hasCompletedOnboarding || !user) && currentView === 'conversation' && !rightPanelCollapsed && (
             <div className="p-4 pl-0 hidden lg:block h-full overflow-hidden">
               <ErrorBoundary fallbackTitle="Lỗi kết xuất Bảng điều khiển">
                 <RightControlPanel />

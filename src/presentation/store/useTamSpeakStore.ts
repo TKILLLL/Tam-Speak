@@ -85,7 +85,17 @@ export interface TamSpeakState {
   // User & Auth
   user: UserProfileDTO | null;
   authModalOpen: boolean;
+  authReady: boolean;
+  authRequired: boolean;
+  authModalIsSignUp: boolean;
   setAuthModalOpen: (open: boolean) => void;
+  openAuthModal: (mode?: 'signin' | 'signup', required?: boolean) => void;
+  closeAuthModal: () => void;
+  setAuthReady: (ready: boolean) => void;
+  setAuthRequired: (required: boolean) => void;
+  guestTrialTurns: number;
+  setGuestTrialTurns: (count: number) => void;
+  incrementGuestTrialTurns: () => number;
   setUser: (user: UserProfileDTO | null) => void;
   resetAll: () => void;
   loadUserDataForUser: (userId: string) => void;
@@ -214,12 +224,38 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   // User & Auth
   user: null,
   authModalOpen: false,
-  setAuthModalOpen: (open) => set({ authModalOpen: open }),
+  authReady: false,
+  authRequired: false,
+  authModalIsSignUp: false,
+  setAuthModalOpen: (open) => set((state) => ({
+    authModalOpen: state.authRequired ? true : open,
+  })),
+  openAuthModal: (mode = 'signin', required = false) =>
+    set({ authModalOpen: true, authModalIsSignUp: mode === 'signup', authRequired: required }),
+  closeAuthModal: () => set((state) => state.authRequired ? { authModalOpen: true } : { authModalOpen: false }),
+  setAuthReady: (authReady) => set({ authReady }),
+  setAuthRequired: (authRequired) => set({ authRequired }),
+  guestTrialTurns: 0,
+  setGuestTrialTurns: (guestTrialTurns) => set({ guestTrialTurns }),
+  incrementGuestTrialTurns: () => {
+    const nextCount = get().guestTrialTurns + 1;
+    try {
+      window.localStorage.setItem('tamspeak_guest_trial_turns', String(nextCount));
+    } catch {
+      // Keep the in-memory limit active when browser storage is unavailable.
+    }
+    set({ guestTrialTurns: nextCount });
+    return nextCount;
+  },
   setUser: (user) => set({ user }),
 
   resetAll: () =>
     set({
       user: null,
+      authReady: true,
+      authRequired: true,
+      authModalOpen: true,
+      authModalIsSignUp: false,
       activeSession: null,
       activeTopic: null,
       dialogueTurns: [],
@@ -248,7 +284,9 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
     const topics = UserStorageService.getUserCustomTopics(userId);
     const completed = UserStorageService.getUserOnboardingCompleted(userId);
     const settings = UserStorageService.getUserSettings(userId);
+    const savedTrialCount = Number(window.localStorage.getItem('tamspeak_guest_trial_turns') || 0);
     set({
+      guestTrialTurns: Number.isFinite(savedTrialCount) ? savedTrialCount : 0,
       customRoleplayTopics: topics,
       hasCompletedOnboarding: completed,
       ...(settings?.activeVoice ? { activeAIVoice: settings.activeVoice } : {}),

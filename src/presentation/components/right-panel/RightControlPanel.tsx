@@ -15,14 +15,16 @@ export const RightControlPanel: React.FC = () => {
     setRightPanelCollapsed,
     rightPanelOpenMobile,
     setRightPanelOpenMobile,
+    user,
   } = useTamSpeakStore();
 
-  const tabs: Array<{ id: RightPanelTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  const allTabs: Array<{ id: RightPanelTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: 'quick_start', label: 'Quick Start', icon: Layers },
     { id: 'qna', label: 'Q&A', icon: MessageSquare },
     { id: 'scoring', label: 'Scoring', icon: Award },
     { id: 'vocab_hints', label: 'Vocab Hints', icon: BookOpen },
   ];
+  const tabs = user ? allTabs : allTabs.filter((tab) => tab.id === 'quick_start' || tab.id === 'qna');
 
   return (
     <>

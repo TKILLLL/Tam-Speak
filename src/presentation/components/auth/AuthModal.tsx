@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Mail, Lock, Loader2 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { supabase, isSupabaseConfigured } from '../../../infrastructure/database/supabase/supabaseClient';
@@ -6,13 +6,27 @@ import { container } from '../../../di/DIContainer';
 import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
 
 export const AuthModal: React.FC = () => {
-  const { authModalOpen, setAuthModalOpen, setUser } = useTamSpeakStore();
+  const {
+    authModalOpen,
+    authRequired,
+    authModalIsSignUp,
+    closeAuthModal,
+    setAuthRequired,
+    setUser,
+  } = useTamSpeakStore();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (authModalOpen) {
+      setIsSignUp(authModalIsSignUp);
+      setErrorMsg(null);
+    }
+  }, [authModalOpen, authModalIsSignUp]);
 
   if (!authModalOpen) return null;
 
@@ -60,7 +74,8 @@ export const AuthModal: React.FC = () => {
             role: isAdmin ? 'admin' : 'user',
             hasCompletedOnboarding: false,
           });
-          setAuthModalOpen(false);
+          setAuthRequired(false);
+          closeAuthModal();
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -94,7 +109,8 @@ export const AuthModal: React.FC = () => {
                 role: isAdmin || dbUser.role === 'admin' ? 'admin' : 'user',
                 hasCompletedOnboarding: isCompleted,
               });
-              setAuthModalOpen(false);
+              setAuthRequired(false);
+              closeAuthModal();
               return;
             }
           } catch (profileErr) {
@@ -117,7 +133,8 @@ export const AuthModal: React.FC = () => {
             role: isAdmin ? 'admin' : 'user',
             hasCompletedOnboarding: false,
           });
-          setAuthModalOpen(false);
+          setAuthRequired(false);
+          closeAuthModal();
         }
       }
     } catch (err) {
@@ -147,12 +164,14 @@ export const AuthModal: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in">
       <div className="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
-        <button
-          onClick={() => setAuthModalOpen(false)}
-          className="absolute right-4 top-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {!authRequired && (
+          <button
+            onClick={closeAuthModal}
+            className="absolute right-4 top-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Modal Header */}
         <div className="text-center mb-6">
@@ -160,10 +179,12 @@ export const AuthModal: React.FC = () => {
             T
           </div>
           <h2 className="text-lg font-bold text-slate-900">
-            {isSignUp ? 'Create your Account' : 'Welcome back to TamSpeak'}
+            {authRequired && isSignUp ? 'Create an account to continue' : isSignUp ? 'Create your Account' : 'Welcome back to TamSpeak'}
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            {isSignUp
+            {authRequired && isSignUp
+              ? 'Your free practice is complete. Register to set up your learning path.'
+              : isSignUp
               ? 'Start practicing English speaking like a native today'
               : 'Sign in to access your practice sessions and progress'}
           </p>
