@@ -37,11 +37,11 @@ export const RightControlPanel: React.FC = () => {
       )}
 
       <aside
-        className={`h-[calc(100vh-5rem)] rounded-3xl border border-slate-200/90 bg-white shadow-xl p-4 flex flex-col transition-all duration-300 z-40 ${
+        className={`h-[calc(100dvh-5rem)] rounded-3xl border border-slate-200/90 bg-white shadow-xl p-4 flex flex-col transition-all duration-300 z-40 ${
           rightPanelExpanded ? 'w-[520px]' : 'w-[420px] xl:w-[460px]'
         } ${
           rightPanelOpenMobile
-            ? 'fixed inset-x-2 bottom-2 top-16 h-auto z-50 flex'
+            ? 'fixed inset-x-0 bottom-0 top-12 h-auto rounded-b-none rounded-t-3xl z-50 flex'
             : 'hidden lg:flex'
         } select-none`}
       >

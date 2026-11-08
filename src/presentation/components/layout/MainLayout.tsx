@@ -149,7 +149,7 @@ export const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex bg-slate-50 font-sans text-slate-900 antialiased">
+    <div className="h-[100dvh] w-screen overflow-hidden flex bg-slate-50 font-sans text-slate-900 antialiased">
       {/* Left Column: Fixed Navigation Sidebar */}
       <Sidebar />
 

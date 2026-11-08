@@ -201,6 +201,7 @@ export const SpeakingAIView: React.FC = () => {
   const startVoiceInput = useCallback(async () => {
     if (isHoldingRef.current) return;
     isHoldingRef.current = true;
+    await SharedAudioContext.unlock();
     setIsHolding(true);
     setOrbState('listening');
 
@@ -263,6 +264,12 @@ export const SpeakingAIView: React.FC = () => {
       recResult = await container.audioRecorderEngine.stop(userId, tempSessionId);
     } catch {
       // safe fallback
+    }
+
+    if (!recResult?.blob || recResult.durationSeconds < 0.5 || audioAnalyzer.audioLevel < 0.02) {
+      setErrorMessage('Không nghe thấy giọng nói. Hãy giữ nút và nói rõ hơn vào micro.');
+      setOrbState('idle');
+      return;
     }
 
     // High-Precision Hybrid Speech Recognition (gemini-3.5-transcribe STT):
@@ -793,9 +800,11 @@ export const SpeakingAIView: React.FC = () => {
                 type="button"
                 onMouseDown={startVoiceInput}
                 onMouseUp={stopVoiceInput}
-                onTouchStart={startVoiceInput}
+                onTouchStart={(event) => { event.preventDefault(); void startVoiceInput(); }}
                 onTouchEnd={stopVoiceInput}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active:scale-95 border cursor-pointer ${
+                onTouchCancel={stopVoiceInput}
+                onContextMenu={(event) => event.preventDefault()}
+                className={`touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active:scale-95 border cursor-pointer ${
                   isHolding
                     ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-md'
                     : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300 hover:shadow-md'
@@ -813,7 +822,7 @@ export const SpeakingAIView: React.FC = () => {
                 ) : (
                   <>
                     <Mic className="w-4 h-4 text-teal-600" />
-                    <span>Giữ [Space]</span>
+                    <span className="sm:hidden">Hold to Talk</span><span className="hidden sm:inline">Giữ [Space]</span>
                   </>
                 )}
               </button>

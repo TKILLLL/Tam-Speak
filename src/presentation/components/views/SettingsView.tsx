@@ -18,6 +18,7 @@ import { container } from '../../../di/DIContainer';
 import { GEMINI_MODELS_FALLBACK_CHAIN, setPersonalApiKey, clearPersonalApiKey } from '../../../infrastructure/ai/AIService';
 import { UserStorageService } from '../../../infrastructure/security/UserStorageService';
 import { SensitiveDataRedactor } from '../../../infrastructure/security/SensitiveDataRedactor';
+import { SettingsStore } from '../../../infrastructure/security/SettingsStore';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -50,6 +51,8 @@ export const SettingsView: React.FC = () => {
   // 3. Vault & General Settings State
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [speechRate, setSpeechRate] = useState(1);
+  const [customProperNouns, setCustomProperNouns] = useState('');
 
   // Load existing settings from user-scoped storage on mount
   useEffect(() => {
@@ -63,6 +66,8 @@ export const SettingsView: React.FC = () => {
       if (savedBundle.feedbackLanguage) setFeedbackLanguage(savedBundle.feedbackLanguage);
       if (savedBundle.practiceMode) setPracticeMode(savedBundle.practiceMode as any);
       if (savedBundle.targetLevel) setTargetLevel(savedBundle.targetLevel as any);
+      setSpeechRate(SettingsStore.getSpeechRate(currentUserId));
+      setCustomProperNouns((savedBundle.customProperNouns || []).join(', '));
     }
 
     // Load Gemini API Key strictly for current user
@@ -157,9 +162,12 @@ export const SettingsView: React.FC = () => {
         feedbackLanguage,
         practiceMode,
         targetLevel,
+        speechRate: SettingsStore.clampSpeechRate(speechRate),
+        customProperNouns: customProperNouns.split(',').map((word) => word.trim()).filter(Boolean),
       };
 
       UserStorageService.setUserSettings(settingsBundle, currentUserId);
+      container.speechTTSEngine.setSpeechRate(speechRate, currentUserId);
       setStatusMessage('Đã lưu toàn bộ cấu hình cài đặt vào hồ sơ riêng của bạn thành công!');
       setTimeout(() => setStatusMessage(null), 3500);
     } finally {
@@ -351,6 +359,19 @@ export const SettingsView: React.FC = () => {
         {/* ======================================================== */}
         {/* 2. PRACTICE CONFIGURATION (MODE, CEFR, FEEDBACK LANGUAGE) */}
         {/* ======================================================== */}
+        <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
+          <h3 className="text-sm font-bold text-slate-900">Tốc độ AI & Tên riêng đặc biệt</h3>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1.5">Tốc độ giọng AI: {speechRate.toFixed(1)}x</label>
+            <input type="range" min="0.5" max="1.5" step="0.1" value={speechRate} onChange={(e) => setSpeechRate(Number(e.target.value))} className="w-full accent-teal-600" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1.5">Từ vựng / tên riêng của tôi</label>
+            <input value={customProperNouns} onChange={(e) => setCustomProperNouns(e.target.value)} placeholder="Xiemeng, tên công ty, quê quán..." className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+            <p className="mt-1 text-[10px] text-slate-400">Phân cách bằng dấu phẩy; được gửi cùng ngữ cảnh nhận diện audio.</p>
+          </div>
+        </div>
+
         <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2.5">

@@ -1,4 +1,5 @@
 import { UserStorageService } from '../security/UserStorageService';
+import { SettingsStore } from '../security/SettingsStore';
 
 export interface VoiceOption {
   id: string;
@@ -32,6 +33,7 @@ export class WebSpeechTTSEngine {
   private manualPersonaVoiceOverrides: Record<string, string> = {};
   private onVoicesLoadedCallbacks: Array<() => void> = [];
   private keepAliveTimer: any = null;
+  private activeSpeech: { text: string; options?: Parameters<WebSpeechTTSEngine['speak']>[1] } | null = null;
 
   constructor() {
     this.loadSavedVoiceOverrides();
@@ -316,7 +318,9 @@ export class WebSpeechTTSEngine {
     const personaConfig = this.getPersonaConfig(this.activePersona);
     const chosenVoice = options?.voice || this.selectedVoice || personaConfig.actualVoice;
     const chosenPitch = options?.pitch ?? personaConfig.pitch;
-    const chosenRate = options?.rate ?? personaConfig.rate;
+    const savedRate = SettingsStore.getSpeechRate();
+    const chosenRate = Math.min(2, Math.max(0.1, (options?.rate ?? personaConfig.rate) * savedRate));
+    this.activeSpeech = { text, options };
 
     let chunkIndex = 0;
     this.isSpeaking = true;
@@ -363,7 +367,24 @@ export class WebSpeechTTSEngine {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       this.isSpeaking = false;
+      this.activeSpeech = null;
     }
+  }
+
+  /** Change the shared learner speed and replay the active utterance immediately. */
+  public setSpeechRate(rate: number, userId?: string | null): number {
+    const next = SettingsStore.clampSpeechRate(rate);
+    SettingsStore.setSpeechRate(next, userId);
+    const active = this.activeSpeech;
+    if (active && this.isSpeaking) {
+      this.stop();
+      this.speak(active.text, active.options);
+    }
+    return next;
+  }
+
+  public getSpeechRate(userId?: string | null): number {
+    return SettingsStore.getSpeechRate(userId);
   }
 
   public isCurrentlySpeaking(): boolean {

@@ -58,7 +58,9 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`h-full shrink-0 flex flex-col overflow-y-auto bg-white border-r border-slate-200 transition-all duration-300 select-none ${
+      className={`h-full shrink-0 flex flex-col overflow-y-auto bg-white border-r border-slate-200 transition-all duration-300 select-none lg:static lg:translate-x-0 ${
+        sidebarCollapsed ? '-translate-x-full lg:translate-x-0' : 'translate-x-0'
+      } fixed left-0 top-0 bottom-0 z-50 w-72 lg:w-auto ${
         sidebarCollapsed ? 'w-16' : 'w-64'
       }`}
     >

@@ -10,6 +10,8 @@ export interface UserSettingsBundle {
   feedbackLanguage?: 'en_vn' | 'en_en';
   practiceMode?: string;
   targetLevel?: string;
+  speechRate?: number;
+  customProperNouns?: string[];
 }
 
 export class UserStorageService {

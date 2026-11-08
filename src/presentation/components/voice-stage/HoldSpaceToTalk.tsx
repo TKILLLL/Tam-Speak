@@ -6,6 +6,7 @@ import { container } from '../../../di/DIContainer';
 import { PracticeSession, DialogueTurn } from '../../../domain/entities/PracticeSession';
 import { aiService } from '../../../infrastructure/ai/AIService';
 import { SpeechNoiseFilter } from '../../../infrastructure/audio/SpeechNoiseFilter';
+import { SharedAudioContext } from '../../../infrastructure/audio/SharedAudioContext';
 
 export const HoldSpaceToTalk: React.FC = () => {
   const {
@@ -60,6 +61,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       return;
     }
     isHoldingRef.current = true;
+    await SharedAudioContext.unlock();
     setIsHolding(true);
     setOrbState('listening');
 
@@ -197,6 +199,12 @@ export const HoldSpaceToTalk: React.FC = () => {
       recResult = await container.audioRecorderEngine.stop(userId, sessionId);
     } catch {
       // Safe fallback
+    }
+
+    if (!recResult?.blob || recResult.durationSeconds < 0.5 || audioAnalyzer.audioLevel < 0.02) {
+      setLastAIMessage('Không nghe thấy giọng nói. Hãy giữ nút và nói rõ hơn vào micro.');
+      setOrbState('idle');
+      return;
     }
 
     // High-Precision Hybrid Speech Recognition (gemini-3.5-transcribe STT):
@@ -596,9 +604,11 @@ export const HoldSpaceToTalk: React.FC = () => {
         <button
           onMouseDown={startVoiceInput}
           onMouseUp={stopVoiceInput}
-          onTouchStart={startVoiceInput}
+          onTouchStart={(event) => { event.preventDefault(); void startVoiceInput(); }}
           onTouchEnd={stopVoiceInput}
-          className={`relative group flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active:scale-95 border ${
+          onTouchCancel={stopVoiceInput}
+          onContextMenu={(event) => event.preventDefault()}
+          className={`touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] relative group flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active:scale-95 border ${
             isHolding
               ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-lg'
               : 'bg-gradient-to-b from-white to-slate-100 hover:to-slate-200 text-slate-800 border-slate-300 hover:shadow-lg'
@@ -616,7 +626,7 @@ export const HoldSpaceToTalk: React.FC = () => {
           ) : (
             <>
               <Mic className="w-4 h-4 text-teal-600 group-hover:scale-110 transition-transform" />
-              <span>Giữ [Space] để nói</span>
+              <span className="sm:hidden">Hold to Talk</span><span className="hidden sm:inline">Giữ [Space] để nói</span>
             </>
           )}
         </button>

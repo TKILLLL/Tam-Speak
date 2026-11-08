@@ -20,7 +20,7 @@ export const VoiceStage: React.FC = () => {
   const displayPart = String(rawPart).replace(/_/g, ' ');
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-between p-6 overflow-y-auto relative bg-gradient-to-b from-white via-slate-50/60 to-slate-100/40 select-none">
+    <div className="flex-1 flex flex-col items-center justify-between p-3 sm:p-6 overflow-y-auto relative bg-gradient-to-b from-white via-slate-50/60 to-slate-100/40 select-none">
       {/* Top Scenario Banner */}
       <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 border border-slate-200/80 shadow-2xs backdrop-blur-xs mb-2">
         <Compass className="w-3.5 h-3.5 text-teal-600" />
@@ -35,7 +35,7 @@ export const VoiceStage: React.FC = () => {
 
       {/* Center Voice Core: Glowing Orb + Interactive Transcript */}
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-xl">
-        <GlowingOrbVisualizer orbState={orbState || 'idle'} />
+        <div className="scale-[0.78] sm:scale-100 origin-center -my-5 sm:my-0"><GlowingOrbVisualizer orbState={orbState || 'idle'} /></div>
         <InteractiveTranscriptBox />
       </div>
 

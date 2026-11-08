@@ -3,6 +3,7 @@ import { Play, Pause, Eye, EyeOff, Volume2 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
 import { WordLookupTooltip } from '../common/WordLookupTooltip';
+import { SpeechRateControl } from '../common/SpeechRateControl';
 
 export const InteractiveTranscriptBox: React.FC = () => {
   const {
@@ -93,6 +94,7 @@ export const InteractiveTranscriptBox: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <SpeechRateControl />
             {/* Replay Button (R) */}
             <button
               onClick={handleReplay}

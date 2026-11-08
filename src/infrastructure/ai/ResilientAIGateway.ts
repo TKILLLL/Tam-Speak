@@ -16,6 +16,7 @@ import { GeminiProviderStrategy } from './providers/GeminiProviderStrategy';
 import { useTamSpeakStore } from '../../presentation/store';
 import { DEFAULT_GEMINI_FALLBACK_KEY, getActiveGeminiApiKey } from './AIService';
 import { UserStorageService } from '../security/UserStorageService';
+import { SettingsStore } from '../security/SettingsStore';
 
 // --- Zod Schemas for LLM Output Validation ---
 
@@ -229,6 +230,7 @@ export class ResilientAIGateway implements IAIGateway {
       // STT is on the critical path. Try the specialized model first and only
       // use the general models when Google explicitly reports a transient error.
       const sttModels = ['gemini-3.5-transcribe', 'gemini-3.8-flash', 'gemini-3.6-flash'];
+      const customVocabulary = SettingsStore.getSettings()?.customProperNouns || [];
 
       for (const model of sttModels) {
         try {
@@ -248,7 +250,7 @@ export class ResilientAIGateway implements IAIGateway {
                   role: 'user',
                   parts: [
                     {
-                      text: `Accurately transcribe the spoken English words in this audio recording verbatim. The speaker is Vietnamese practicing English: correctly transcribe English words and recognize Vietnamese proper nouns, regional locations, and cultural foods ('banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'). Output ONLY the clean verbatim English transcript text without commentary, quotation marks, or markdown fences. Context: ${promptContext || 'English conversation practice'}`,
+                      text: `Listen to the attached audio directly and transcribe only what is actually spoken, verbatim. Never invent, complete, or repair an unintelligible sentence. If no words are audible, return an empty string. The speaker may code-switch Vietnamese and English; preserve proper nouns and food/place names such as Bánh mì, Đồng Nai, Bình Dương, Phở, Đà Nẵng, Hồ Chí Minh, Hà Nội and these user vocabulary terms: ${customVocabulary.join(', ') || '(none)'}. Output ONLY the transcript text. Context: ${promptContext || 'English conversation practice'}`,
                     },
                     {
                       inlineData: {

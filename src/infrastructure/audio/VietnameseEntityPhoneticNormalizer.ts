@@ -53,6 +53,12 @@ const VIETNAMESE_PHONETIC_REPLACEMENTS: Array<{ regex: RegExp; replacement: stri
   { regex: /\b(bac\s*ninh|back\s*ninh)\b/gi, replacement: 'Bac Ninh' },
   { regex: /\b(bac\s*giang|back\s*giang)\b/gi, replacement: 'Bac Giang' },
   { regex: /\b(thai\s*nguyen|tie\s*nguyen)\b/gi, replacement: 'Thai Nguyen' },
+  { regex: /\b(see\s*meng|she\s*meng|xie\s*meng)\b/gi, replacement: 'Xiemeng' },
+];
+
+export const DEFAULT_CUSTOM_PROPER_NOUNS = [
+  'Đồng Nai', 'Bình Dương', 'Bà Rịa', 'Vũng Tàu', 'Cần Thơ', 'Đà Nẵng',
+  'Hồ Chí Minh', 'Hà Nội', 'Bánh mì', 'Phở', 'Bún bò', 'Cơm tấm', 'Áo dài', 'Tết', 'Xiemeng',
 ];
 
 export class VietnameseEntityPhoneticNormalizer {
@@ -72,5 +78,14 @@ export class VietnameseEntityPhoneticNormalizer {
     }
 
     return normalized;
+  }
+
+  public static normalizeWithCustomVocabulary(rawTranscript: string, customWords: string[] = []): string {
+    let result = this.normalizeTranscript(rawTranscript);
+    for (const word of customWords.filter(Boolean)) {
+      const compact = word.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (compact) result = result.replace(new RegExp(`\\b${compact}\\b`, 'gi'), word.trim());
+    }
+    return result;
   }
 }

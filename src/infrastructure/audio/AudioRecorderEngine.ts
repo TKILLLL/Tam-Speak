@@ -29,6 +29,8 @@ export class AudioRecorderEngine {
       'audio/webm',
       'audio/ogg;codecs=opus',
       'audio/mp4',
+      'audio/aac',
+      'audio/wav',
     ];
 
     if (typeof MediaRecorder === 'undefined') {

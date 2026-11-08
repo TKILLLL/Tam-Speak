@@ -6,6 +6,7 @@ import {
   LogOut,
   ChevronDown,
   Award,
+  Menu,
 } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { supabase } from '../../../infrastructure/database/supabase/supabaseClient';
@@ -19,6 +20,7 @@ export const Header: React.FC = () => {
     activeAIProvider,
     activeAIVoice,
     isFallbackActive,
+    toggleSidebar,
   } = useTamSpeakStore();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -53,6 +55,9 @@ export const Header: React.FC = () => {
     <header className="h-16 shrink-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-6 flex items-center justify-between select-none">
       {/* Left: TamSpeak Branding */}
       <div className="flex items-center gap-2.5">
+        <button type="button" onClick={toggleSidebar} className="lg:hidden rounded-xl p-2 text-slate-600 hover:bg-slate-100" aria-label="Open navigation">
+          <Menu className="h-5 w-5" />
+        </button>
         <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 flex items-center justify-center text-white font-black text-lg shadow-sm shadow-teal-500/20">
           T
         </div>

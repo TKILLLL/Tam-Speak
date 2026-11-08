@@ -52,6 +52,16 @@ export class SharedAudioContext {
     return SharedAudioContext.currentAudioLevel;
   }
 
+  public static async unlock(): Promise<void> {
+    const context = SharedAudioContext.getContext();
+    if (context?.state === 'suspended') await context.resume().catch(() => undefined);
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const utterance = new SpeechSynthesisUtterance('');
+      utterance.volume = 0;
+      window.speechSynthesis.speak(utterance);
+    }
+  }
+
   public static subscribeLevel(listener: (level: number) => void): () => void {
     SharedAudioContext.activeListeners.add(listener);
     return () => {
