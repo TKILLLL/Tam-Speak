@@ -205,13 +205,13 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 md:p-8 overflow-y-auto bg-slate-50 select-none">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="flex-1 p-3.5 sm:p-6 md:p-8 overflow-y-auto bg-slate-50 select-none pb-safe">
+      <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+            <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 flex-wrap">
               <span>Cài Đặt Hệ Thống & Giọng Nói</span>
-              <span className="text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
+              <span className="text-[10px] sm:text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
                 Google Gemini Native
               </span>
             </h2>
@@ -224,7 +224,7 @@ export const SettingsView: React.FC = () => {
             type="button"
             onClick={handleSaveAllSettings}
             disabled={isSaving}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md active-press transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer w-full sm:w-auto shrink-0"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>{isSaving ? 'Đang Lưu...' : 'Lưu Toàn Bộ Cài Đặt'}</span>
@@ -241,7 +241,7 @@ export const SettingsView: React.FC = () => {
         {/* ======================================================== */}
         {/* 1. PERSONAL API KEY CONFIGURATION (BYOK) - GOOGLE GEMINI */}
         {/* ======================================================== */}
-        <div className="p-6 rounded-3xl border-2 border-teal-200/90 bg-white shadow-md space-y-5">
+        <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 border-teal-200/90 bg-white shadow-md space-y-4 sm:space-y-5">
           <div className="flex items-start justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs">

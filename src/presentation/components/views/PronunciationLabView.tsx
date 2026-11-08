@@ -258,14 +258,14 @@ export const PronunciationLabView: React.FC = () => {
   const masteredCount = pronunciationMistakes.filter((m) => m.isMastered).length;
 
   return (
-    <div className="flex-1 p-6 md:p-8 overflow-y-auto bg-slate-50 select-none">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="flex-1 p-3.5 sm:p-6 md:p-8 overflow-y-auto bg-slate-50 select-none pb-safe">
+      <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+            <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 flex-wrap">
               <span>Pronunciation & IPA Lab</span>
-              <span className="text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
+              <span className="text-[10px] sm:text-[11px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
                 Interactive Flashcards
               </span>
             </h2>
@@ -275,8 +275,9 @@ export const PronunciationLabView: React.FC = () => {
           </div>
 
           <button
+            type="button"
             onClick={() => setAddModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold shadow-xs active-press transition-colors self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
             <span>Add Custom Word</span>
@@ -355,14 +356,14 @@ export const PronunciationLabView: React.FC = () => {
         ) : activeCard ? (
           <div className="space-y-4">
             {/* Flashcard Card Body */}
-            <div className="bg-white rounded-3xl border-2 border-slate-200/90 shadow-md p-6 md:p-8 space-y-6 relative overflow-hidden">
+            <div className="bg-white rounded-3xl border-2 border-slate-200/90 shadow-md p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 relative overflow-hidden">
               {/* Top Card Badge: Source Topic & Mistake Count */}
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-100">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-100 truncate max-w-[200px]">
                   Topic: {activeCard.topicTitle}
                 </span>
 
-                <div className="flex items-center gap-1.5 text-xs text-amber-700 font-semibold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                <div className="flex items-center gap-1.5 text-xs text-amber-700 font-semibold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 shrink-0">
                   <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
                   <span>Mispronounced {activeCard.mistakeCount}x</span>
                 </div>
@@ -370,7 +371,7 @@ export const PronunciationLabView: React.FC = () => {
 
               {/* Main Word & IPA Display */}
               <div className="text-center space-y-2 py-2">
-                <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
+                <h3 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
                   {activeCard.word}
                 </h3>
                 <div className="flex items-center justify-center gap-3">

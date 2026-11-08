@@ -96,10 +96,10 @@ export const ProgressDashboardView: React.FC = () => {
     : 'Chưa đánh giá';
 
   return (
-    <div className="flex-1 p-6 md:p-8 overflow-y-auto bg-slate-50 select-none">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="flex-1 p-3.5 sm:p-6 md:p-8 overflow-y-auto bg-slate-50 select-none pb-safe">
+      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
+          <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
             Speaking Progress & Roadmap
           </h2>
           <p className="text-xs text-slate-500 mt-1">
@@ -108,46 +108,46 @@ export const ProgressDashboardView: React.FC = () => {
         </div>
 
         {/* 4 Stat Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-          <div className="p-4 rounded-3xl border border-slate-200 bg-white shadow-2xs">
-            <div className="flex items-center gap-2 text-orange-600 mb-1">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+          <div className="p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-200 bg-white shadow-2xs">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-orange-600 mb-1">
               <Flame className="w-4 h-4 fill-orange-500" />
-              <span className="font-bold">Practice Streak</span>
+              <span className="font-bold text-[11px] sm:text-xs">Practice Streak</span>
             </div>
-            <div className="text-2xl font-black text-slate-900">
+            <div className="text-xl sm:text-2xl font-black text-slate-900">
               {user?.streakDays || (sessions.length > 0 ? 1 : 0)} Days
             </div>
             <span className="text-[10px] text-slate-400">Keep practicing daily</span>
           </div>
 
-          <div className="p-4 rounded-3xl border border-slate-200 bg-white shadow-2xs">
-            <div className="flex items-center gap-2 text-teal-600 mb-1">
+          <div className="p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-200 bg-white shadow-2xs">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-teal-600 mb-1">
               <Clock className="w-4 h-4" />
-              <span className="font-bold">Total Time</span>
+              <span className="font-bold text-[11px] sm:text-xs">Total Time</span>
             </div>
-            <div className="text-2xl font-black text-slate-900">
+            <div className="text-xl sm:text-2xl font-black text-slate-900">
               {totalMinutes} <span className="text-xs font-normal text-slate-500">mins</span>
             </div>
             <span className="text-[10px] text-slate-400">Recorded active speech</span>
           </div>
 
-          <div className="p-4 rounded-3xl border border-slate-200 bg-white shadow-2xs">
-            <div className="flex items-center gap-2 text-cyan-600 mb-1">
+          <div className="p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-200 bg-white shadow-2xs">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-cyan-600 mb-1">
               <Award className="w-4 h-4" />
-              <span className="font-bold">Average Band</span>
+              <span className="font-bold text-[11px] sm:text-xs">Average Band</span>
             </div>
-            <div className="text-2xl font-black text-slate-900">
+            <div className="text-xl sm:text-2xl font-black text-slate-900">
               {averageBandDisplay}
             </div>
             <span className="text-[10px] text-slate-400">IELTS Composite</span>
           </div>
 
-          <div className="p-4 rounded-3xl border border-slate-200 bg-white shadow-2xs">
-            <div className="flex items-center gap-2 text-purple-600 mb-1">
+          <div className="p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-200 bg-white shadow-2xs">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-purple-600 mb-1">
               <Target className="w-4 h-4" />
-              <span className="font-bold">Target Band</span>
+              <span className="font-bold text-[11px] sm:text-xs">Target Band</span>
             </div>
-            <div className="text-2xl font-black text-slate-900">
+            <div className="text-xl sm:text-2xl font-black text-slate-900">
               {user?.targetBand || 7.5} <span className="text-xs font-normal text-slate-500">IELTS</span>
             </div>
             <span className="text-[10px] text-teal-600 font-semibold">Target Goal</span>
@@ -155,20 +155,21 @@ export const ProgressDashboardView: React.FC = () => {
         </div>
 
         {/* Diagnostic Placement Test Card */}
-        <div className="p-5 rounded-3xl bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md flex items-center justify-between">
+        <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-teal-100">
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-teal-100">
               Diagnostic Placement Test
             </span>
-            <h3 className="text-base font-bold">Assess Your True Speaking Band in 3 Minutes</h3>
+            <h3 className="text-sm sm:text-base font-bold">Assess Your True Speaking Band in 3 Minutes</h3>
             <p className="text-xs text-teal-100 max-w-lg leading-relaxed">
               Read 3 phonetically balanced sentences and speak on 2 quick prompts to generate your benchmark CEFR level.
             </p>
           </div>
 
           <button
+            type="button"
             onClick={() => setCurrentView('conversation')}
-            className="py-2.5 px-5 rounded-2xl bg-white hover:bg-teal-50 text-teal-900 font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 shrink-0"
+            className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-2xl bg-white hover:bg-teal-50 text-teal-900 font-bold text-xs shadow-xs active-press transition-all flex items-center justify-center gap-1.5 shrink-0 self-start sm:self-auto"
           >
             <Play className="w-3.5 h-3.5 fill-teal-900" />
             <span>Start Practice</span>

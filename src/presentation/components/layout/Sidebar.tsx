@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   MessageSquare,
   Target,
@@ -11,6 +11,7 @@ import {
   User,
   Star,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { useTamSpeakStore, NavigationView } from '../../store';
 
@@ -39,11 +40,19 @@ export const Sidebar: React.FC = () => {
     currentView,
     setCurrentView,
     sidebarCollapsed,
+    setSidebarCollapsed,
     toggleSidebar,
     user,
     setAuthModalOpen,
     hasCompletedOnboarding,
   } = useTamSpeakStore();
+
+  // On mobile screens, collapse sidebar by default on initial render
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setSidebarCollapsed(true);
+    }
+  }, [setSidebarCollapsed]);
 
   const userEmail = (user?.email || '').toLowerCase();
   const isAdmin =
@@ -56,121 +65,148 @@ export const Sidebar: React.FC = () => {
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
   const guestNavItems = user ? visibleNavItems : visibleNavItems.filter((item) => item.id === 'conversation');
 
+  const handleNavClick = (id: NavigationView) => {
+    if (id === 'conversation' || hasCompletedOnboarding) {
+      setCurrentView(id);
+      // Auto-close drawer on mobile when an item is selected
+      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setSidebarCollapsed(true);
+      }
+    }
+  };
+
   return (
-    <aside
-      className={`h-full shrink-0 flex flex-col overflow-y-auto bg-white border-r border-slate-200 transition-all duration-300 select-none lg:static lg:translate-x-0 ${
-        sidebarCollapsed ? '-translate-x-full lg:translate-x-0' : 'translate-x-0'
-      } fixed left-0 top-0 bottom-0 z-50 w-72 lg:w-auto ${
-        sidebarCollapsed ? 'w-16' : 'w-64'
-      }`}
-    >
-      {/* User Header Profile */}
-      <div className="p-3 border-b border-slate-100 flex items-center justify-between">
+    <>
+      {/* Mobile Backdrop Overlay */}
+      {!sidebarCollapsed && (
         <div
-          onClick={() => {
-            if (!user) setAuthModalOpen(true);
-            else setCurrentView('profile');
-          }}
-          className="flex items-center gap-2.5 overflow-hidden cursor-pointer group flex-1"
-          title={!user ? 'Click to Sign in' : 'View Profile'}
-        >
-          <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs group-hover:bg-teal-600 transition-colors relative">
-            {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
-            {isAdmin && (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full flex items-center justify-center text-white font-bold ring-2 ring-white">
-                <Star className="w-2 h-2 fill-white text-white" />
-              </span>
-            )}
-          </div>
-          {!sidebarCollapsed && (
-            <div className="flex flex-col truncate">
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-bold text-slate-900 truncate group-hover:text-teal-700 transition-colors">
-                  {user?.displayName || 'Guest Learner'}
+          onClick={() => setSidebarCollapsed(true)}
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs lg:hidden animate-in fade-in"
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`h-full shrink-0 flex flex-col bg-white border-r border-slate-200 transition-all duration-300 select-none z-50 ${
+          sidebarCollapsed
+            ? '-translate-x-full lg:translate-x-0 lg:w-16'
+            : 'translate-x-0 w-72 lg:w-64'
+        } fixed left-0 top-0 bottom-0 lg:static shadow-xl lg:shadow-none pb-safe`}
+      >
+        {/* User Header Profile */}
+        <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
+          <div
+            onClick={() => {
+              if (!user) setAuthModalOpen(true);
+              else handleNavClick('profile');
+            }}
+            className="flex items-center gap-2.5 overflow-hidden cursor-pointer group flex-1"
+            title={!user ? 'Click to Sign in' : 'View Profile'}
+          >
+            <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs group-hover:bg-teal-600 transition-colors relative">
+              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
+              {isAdmin && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full flex items-center justify-center text-white font-bold ring-2 ring-white">
+                  <Star className="w-2 h-2 fill-white text-white" />
                 </span>
-                {isAdmin && (
-                  <span className="px-1 py-0.2 bg-amber-100 text-amber-800 text-[9px] font-bold rounded">
-                    Admin
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] text-teal-600 font-medium">
-                {user ? `Band Target: ${user.targetBand}` : 'Click to Sign In'}
-              </span>
+              )}
             </div>
-          )}
-        </div>
-
-        <button
-          onClick={toggleSidebar}
-          title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
-        >
-          {sidebarCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <ChevronLeft className="w-4 h-4" />
-          )}
-        </button>
-      </div>
-
-      {/* Streamlined 5 Navigation Menu Items */}
-      <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {guestNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            currentView === item.id ||
-            (item.id === 'conversation' && (currentView === 'ielts' || currentView === 'scratchpad' || currentView === 'vocab_bank'));
-
-          return (
-            <button
-              key={item.id}
-              disabled={item.id !== 'conversation' && !hasCompletedOnboarding}
-              onClick={() => {
-                if (item.id === 'conversation' || hasCompletedOnboarding) {
-                  setCurrentView(item.id);
-                }
-              }}
-              title={item.id !== 'conversation' && !hasCompletedOnboarding ? 'Vui lòng hoàn thành bài kiểm tra xếp lớp trước' : item.label}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all group ${
-                item.id !== 'conversation' && !hasCompletedOnboarding ? 'opacity-40 cursor-not-allowed' : ''
-              } ${
-                isActive
-                  ? 'bg-gradient-to-r from-teal-50/90 to-cyan-50/80 text-teal-900 font-semibold shadow-xs border border-teal-200/60'
-                  : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
-              }`}
-            >
-              <Icon
-                className={`w-4 h-4 shrink-0 transition-colors ${
-                  isActive ? 'text-teal-600' : 'text-slate-400 group-hover:text-slate-600'
-                }`}
-              />
-              {!sidebarCollapsed && (
-                <div className="flex-1 flex items-center justify-between text-left">
-                  <span className="truncate">{item.label}</span>
-                  {item.adminOnly && (
-                    <span className="text-[9px] bg-slate-100 text-slate-500 px-1 rounded flex items-center gap-0.5">
-                      <ShieldCheck className="w-2.5 h-2.5" />
+            {!sidebarCollapsed && (
+              <div className="flex flex-col truncate">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-bold text-slate-900 truncate group-hover:text-teal-700 transition-colors">
+                    {user?.displayName || 'Guest Learner'}
+                  </span>
+                  {isAdmin && (
+                    <span className="px-1 py-0.2 bg-amber-100 text-amber-800 text-[9px] font-bold rounded">
+                      Admin
                     </span>
                   )}
                 </div>
-              )}
-            </button>
-          );
-        })}
-      </nav>
+                <span className="text-[10px] text-teal-600 font-medium">
+                  {user ? `Band Target: ${user.targetBand}` : 'Click to Sign In'}
+                </span>
+              </div>
+            )}
+          </div>
 
-      {/* Footer Tagline */}
-      {!sidebarCollapsed && (
-        <div className="p-3 border-t border-slate-100 text-center">
-          <p className="text-[11px] font-medium text-slate-400">
-            TamSpeak v1.0.0
-          </p>
-          <p className="text-[10px] text-teal-600 font-semibold tracking-wide">
-            Speak Like a Native
-          </p>
+          {/* Desktop Toggle Button */}
+          <button
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            className="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="w-4 h-4" />
+            ) : (
+              <ChevronLeft className="w-4 h-4" />
+            )}
+          </button>
+
+          {/* Mobile Close Button */}
+          <button
+            onClick={() => setSidebarCollapsed(true)}
+            title="Close navigation"
+            className="lg:hidden p-1.5 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
-      )}
-    </aside>
+
+        {/* Streamlined Navigation Menu Items */}
+        <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
+          {guestNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive =
+              currentView === item.id ||
+              (item.id === 'conversation' && (currentView === 'ielts' || currentView === 'scratchpad' || currentView === 'vocab_bank'));
+
+            return (
+              <button
+                key={item.id}
+                disabled={item.id !== 'conversation' && !hasCompletedOnboarding}
+                onClick={() => handleNavClick(item.id)}
+                title={item.id !== 'conversation' && !hasCompletedOnboarding ? 'Vui lòng hoàn thành bài kiểm tra xếp lớp trước' : item.label}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all group active-press ${
+                  item.id !== 'conversation' && !hasCompletedOnboarding ? 'opacity-40 cursor-not-allowed' : ''
+                } ${
+                  isActive
+                    ? 'bg-gradient-to-r from-teal-50/90 to-cyan-50/80 text-teal-900 font-semibold shadow-xs border border-teal-200/60'
+                    : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
+                }`}
+              >
+                <Icon
+                  className={`w-4 h-4 shrink-0 transition-colors ${
+                    isActive ? 'text-teal-600' : 'text-slate-400 group-hover:text-slate-600'
+                  }`}
+                />
+                {!sidebarCollapsed && (
+                  <div className="flex-1 flex items-center justify-between text-left">
+                    <span className="truncate">{item.label}</span>
+                    {item.adminOnly && (
+                      <span className="text-[9px] bg-slate-100 text-slate-500 px-1 rounded flex items-center gap-0.5">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Footer Tagline */}
+        {!sidebarCollapsed && (
+          <div className="p-3 border-t border-slate-100 text-center">
+            <p className="text-[11px] font-medium text-slate-400">
+              TamSpeak v1.0.0
+            </p>
+            <p className="text-[10px] text-teal-600 font-semibold tracking-wide">
+              Speak Like a Native
+            </p>
+          </div>
+        )}
+      </aside>
+    </>
   );
 };

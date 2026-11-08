@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
+import { MobileNavBar } from './MobileNavBar';
 import { VoiceStage } from '../voice-stage/VoiceStage';
 import { RightControlPanel } from '../right-panel/RightControlPanel';
 import { AuthModal } from '../auth/AuthModal';
@@ -161,22 +162,29 @@ export const MainLayout: React.FC = () => {
         {/* Content Workspace: Scoped Scrolling per view */}
         <div className="flex-1 flex overflow-hidden min-h-0 relative">
           {/* Center Column: Main Active View */}
-          <main className="flex-1 flex flex-col overflow-hidden relative min-h-0 min-w-0">
+          <main className="flex-1 flex flex-col overflow-hidden relative min-h-0 min-w-0 pb-16 lg:pb-0">
             {renderCurrentView()}
 
             {/* Floating Mobile Panel Toggle Button (Only in conversation practice) */}
             {currentView === 'conversation' && (
               <button
+                type="button"
                 onClick={() => setRightPanelOpenMobile(true)}
-                className="lg:hidden absolute bottom-5 right-5 z-30 p-3 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-transform active:scale-95"
-                title="Open Controls & Q&A"
+                className="lg:hidden absolute bottom-20 right-4 z-20 flex items-center gap-1.5 px-3.5 py-2.5 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 active-press transition-all border border-teal-500"
+                title="Mở Bảng điều khiển & Q&A"
               >
-                <SlidersHorizontal className="w-5 h-5" />
+                <SlidersHorizontal className="w-4 h-4" />
+                <span className="text-xs font-bold">Controls & Q&A</span>
+                {dialogueTurns.length > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-white text-teal-700 text-[10px] font-black flex items-center justify-center">
+                    {dialogueTurns.length}
+                  </span>
+                )}
               </button>
             )}
           </main>
 
-          {/* Right Column: Contextual Floating Panel (4 Tabs) - Only in conversation practice */}
+          {/* Right Column: Contextual Floating Panel (4 Tabs) - Desktop */}
           {(hasCompletedOnboarding || !user) && currentView === 'conversation' && !rightPanelCollapsed && (
             <div className="p-4 pl-0 hidden lg:block h-full overflow-hidden">
               <ErrorBoundary fallbackTitle="Lỗi kết xuất Bảng điều khiển">
@@ -185,7 +193,16 @@ export const MainLayout: React.FC = () => {
             </div>
           )}
 
-          {/* Floating Expand Button for Right Panel when Collapsed */}
+          {/* Right Column: Mobile Drawer/Sheet for RightControlPanel */}
+          {(hasCompletedOnboarding || !user) && currentView === 'conversation' && (
+            <div className="lg:hidden">
+              <ErrorBoundary fallbackTitle="Lỗi kết xuất Bảng điều khiển">
+                <RightControlPanel />
+              </ErrorBoundary>
+            </div>
+          )}
+
+          {/* Floating Expand Button for Right Panel when Collapsed (Desktop) */}
           {currentView === 'conversation' && rightPanelCollapsed && (
             <button
               onClick={() => setRightPanelCollapsed(false)}
@@ -202,6 +219,9 @@ export const MainLayout: React.FC = () => {
             </button>
           )}
         </div>
+
+        {/* Mobile Persistent Bottom Navigation Bar */}
+        <MobileNavBar />
       </div>
 
       {/* Global Auth Modal */}

@@ -22,13 +22,13 @@ export const VoiceStage: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col items-center justify-between p-3 sm:p-6 overflow-y-auto relative bg-gradient-to-b from-white via-slate-50/60 to-slate-100/40 select-none">
       {/* Top Scenario Banner */}
-      <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 border border-slate-200/80 shadow-2xs backdrop-blur-xs mb-2">
-        <Compass className="w-3.5 h-3.5 text-teal-600" />
-        <span className="text-xs font-semibold text-slate-800">
+      <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-white/85 border border-slate-200/80 shadow-2xs backdrop-blur-xs mb-2 max-w-[92vw]">
+        <Compass className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+        <span className="text-xs font-semibold text-slate-800 truncate">
           Topic: {displayTitle}
         </span>
-        <span className="text-slate-300">•</span>
-        <span className="text-[11px] font-medium text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full capitalize">
+        <span className="text-slate-300 shrink-0">•</span>
+        <span className="text-[11px] font-medium text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full capitalize shrink-0">
           {displayPart}
         </span>
       </div>

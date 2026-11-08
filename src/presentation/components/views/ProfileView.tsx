@@ -103,11 +103,11 @@ export const ProfileView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 md:p-8 overflow-y-auto bg-slate-50 select-none">
-      <div className="max-w-3xl mx-auto space-y-6">
+    <div className="flex-1 p-3.5 sm:p-6 md:p-8 overflow-y-auto bg-slate-50 select-none pb-safe">
+      <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6">
         {/* Header */}
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
+          <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
             User Profile & Learning Target
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -116,36 +116,36 @@ export const ProfileView: React.FC = () => {
         </div>
 
         {/* User Card Overview */}
-        <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-2xs flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white font-extrabold text-xl flex items-center justify-center shadow-xs">
+        <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-white border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-slate-900 text-white font-extrabold text-lg sm:text-xl flex items-center justify-center shadow-xs shrink-0">
               {displayName.charAt(0).toUpperCase()}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-slate-900">{displayName}</h3>
-                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 truncate">{displayName}</h3>
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200 shrink-0">
                   {user?.role === 'admin' ? 'Admin' : 'Member'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
-                <Mail className="w-3.5 h-3.5 text-slate-400" />
-                <span>{user?.email || 'learner@tamspeak.app'}</span>
+              <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5 truncate">
+                <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="truncate">{user?.email || 'learner@tamspeak.app'}</span>
               </p>
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center gap-4 text-xs font-mono">
-            <div className="text-right">
+          <div className="flex sm:flex items-center gap-4 text-xs font-mono pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+            <div className="text-left sm:text-right">
               <span className="text-[10px] text-slate-400 block font-sans">Practice Streak</span>
-              <span className="font-bold text-orange-600 flex items-center gap-1 justify-end">
+              <span className="font-bold text-orange-600 flex items-center gap-1 sm:justify-end">
                 <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-500" />
                 {user?.streakDays || 1} Days
               </span>
             </div>
-            <div className="text-right border-l border-slate-200 pl-4">
+            <div className="text-left sm:text-right border-l border-slate-200 pl-4">
               <span className="text-[10px] text-slate-400 block font-sans">Active Time</span>
-              <span className="font-bold text-teal-700 flex items-center gap-1 justify-end">
+              <span className="font-bold text-teal-700 flex items-center gap-1 sm:justify-end">
                 <Clock className="w-3.5 h-3.5 text-teal-600" />
                 {user?.totalPracticeMinutes || 0} mins
               </span>
@@ -154,7 +154,7 @@ export const ProfileView: React.FC = () => {
         </div>
 
         {/* Profile Settings Form */}
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs p-6 space-y-4">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-2xs p-4 sm:p-6 space-y-4">
           <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
             <User className="w-4 h-4 text-teal-600" />
             <h4 className="font-bold text-sm text-slate-800">Thông tin cá nhân & Mục tiêu học tập</h4>

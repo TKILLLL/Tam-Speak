@@ -114,7 +114,7 @@ export const QnATab: React.FC = () => {
                   {isPopoverOpen && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-white rounded-2xl shadow-xl border border-slate-200 text-left text-[11px] space-y-2 animate-in zoom-in-95"
+                      className="absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 max-w-[calc(100vw-3rem)] p-3 bg-white rounded-2xl shadow-xl border border-slate-200 text-left text-[11px] space-y-2 animate-in zoom-in-95"
                     >
                       <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                         <span className="font-extrabold text-slate-900 capitalize text-xs">

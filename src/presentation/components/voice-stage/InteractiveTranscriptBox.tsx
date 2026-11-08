@@ -80,26 +80,26 @@ export const InteractiveTranscriptBox: React.FC = () => {
       )}
 
       {/* Transcript Card Container */}
-      <div className="rounded-2xl border border-slate-200/90 bg-white/90 backdrop-blur-xs p-5 shadow-sm transition-all hover:shadow-md">
+      <div className="rounded-2xl border border-slate-200/90 bg-white/90 backdrop-blur-xs p-3.5 sm:p-5 shadow-sm transition-all hover:shadow-md">
         {/* Controls Bar */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5 mb-2.5">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-teal-500" />
               AI Examiner
             </span>
-            <span className="text-[10px] text-slate-400 font-medium">
+            <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
               (Highlight words to inspect IPA)
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <SpeechRateControl />
             {/* Replay Button (R) */}
             <button
               onClick={handleReplay}
               title="Replay AI Speech (Shortcut: R)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-[11px] sm:text-xs font-semibold shadow-xs transition-all active-press"
             >
               {isPlayingReplay ? (
                 <>
@@ -109,7 +109,7 @@ export const InteractiveTranscriptBox: React.FC = () => {
               ) : (
                 <>
                   <Play className="w-3 h-3 fill-white" />
-                  <span>Replay [R]</span>
+                  <span>Replay<span className="hidden sm:inline"> [R]</span></span>
                 </>
               )}
             </button>
@@ -118,17 +118,17 @@ export const InteractiveTranscriptBox: React.FC = () => {
             <button
               onClick={toggleHideLastMessage}
               title="Toggle Transcript for Listening Reflex (Shortcut: H)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] sm:text-xs font-medium transition-colors active-press"
             >
               {isLastMessageHidden ? (
                 <>
                   <Eye className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Show [H]</span>
+                  <span>Show<span className="hidden sm:inline"> [H]</span></span>
                 </>
               ) : (
                 <>
                   <EyeOff className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Hide [H]</span>
+                  <span>Hide<span className="hidden sm:inline"> [H]</span></span>
                 </>
               )}
             </button>

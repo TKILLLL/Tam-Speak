@@ -52,30 +52,36 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="h-16 shrink-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-6 flex items-center justify-between select-none">
-      {/* Left: TamSpeak Branding */}
-      <div className="flex items-center gap-2.5">
-        <button type="button" onClick={toggleSidebar} className="lg:hidden rounded-xl p-2 text-slate-600 hover:bg-slate-100" aria-label="Open navigation">
+    <header className="h-14 sm:h-16 shrink-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-3 sm:px-6 flex items-center justify-between select-none">
+      {/* Left: TamSpeak Branding & Mobile Drawer Toggle */}
+      <div className="flex items-center gap-2 sm:gap-2.5">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="lg:hidden rounded-xl p-2 text-slate-600 hover:bg-slate-100 active-press transition-colors"
+          aria-label="Open navigation"
+        >
           <Menu className="h-5 w-5" />
         </button>
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 flex items-center justify-center text-white font-black text-lg shadow-sm shadow-teal-500/20">
+        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 flex items-center justify-center text-white font-black text-base sm:text-lg shadow-sm shadow-teal-500/20">
           T
         </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-extrabold tracking-tight text-slate-900">
+        <div className="flex items-baseline gap-1.5 sm:gap-2">
+          <span className="text-base sm:text-xl font-extrabold tracking-tight text-slate-900">
             TamSpeak
           </span>
-          <span className="text-slate-300 font-light hidden sm:inline">/</span>
-          <span className="text-xs font-semibold text-teal-600 tracking-wide uppercase hidden sm:inline">
+          <span className="text-slate-300 font-light hidden md:inline">/</span>
+          <span className="text-xs font-semibold text-teal-600 tracking-wide uppercase hidden md:inline">
             Speak Like a Native
           </span>
         </div>
       </div>
 
-      {/* Center: Dynamic AI Status Badge */}
+      {/* Center: Dynamic AI Status Badge (Desktop & Mobile optimized) */}
       <div className="flex items-center">
         <div
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border shadow-xs transition-all ${
+          title={`Active Model: ${activeAIProvider} | Voice: ${activeAIVoice}`}
+          className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-medium border shadow-xs transition-all ${
             isFallbackActive
               ? 'bg-amber-50 border-amber-200 text-amber-800'
               : 'bg-teal-50/80 border-teal-200/80 text-teal-800'
@@ -93,11 +99,15 @@ export const Header: React.FC = () => {
               }`}
             />
           </span>
-          <span className="font-semibold">{activeAIProvider}</span>
-          <span className="text-slate-400">•</span>
-          <span className="text-slate-600 font-normal">Voice: {activeAIVoice}</span>
+          <span className="font-semibold truncate max-w-[110px] sm:max-w-none">
+            {activeAIProvider.replace('gemini-', '')}
+          </span>
+          <span className="text-slate-400 hidden sm:inline">•</span>
+          <span className="text-slate-600 font-normal hidden sm:inline truncate max-w-[120px]">
+            Voice: {activeAIVoice}
+          </span>
           {isFallbackActive && (
-            <span className="text-[10px] bg-amber-200/60 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+            <span className="text-[9px] sm:text-[10px] bg-amber-200/60 text-amber-900 px-1 sm:px-1.5 py-0.2 rounded font-bold">
               FALLBACK
             </span>
           )}
@@ -105,27 +115,28 @@ export const Header: React.FC = () => {
       </div>
 
       {/* Right: User Profile & Streak / Auth */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3">
         {user ? (
-          <div className="flex items-center gap-2.5 relative" ref={dropdownRef}>
+          <div className="flex items-center gap-1.5 sm:gap-2.5 relative" ref={dropdownRef}>
             {/* Streak Badge */}
             <div
               title={`${user.streakDays} Day Practice Streak!`}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-xs font-bold"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-[11px] sm:text-xs font-bold"
             >
               <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-500" />
-              <span>{user.streakDays}d Streak</span>
+              <span>{user.streakDays}d<span className="hidden sm:inline"> Streak</span></span>
             </div>
 
             {/* User Avatar Button (Toggles Dropdown) */}
             <button
+              type="button"
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2 p-1 pl-2 pr-2.5 rounded-full hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
+              className="flex items-center gap-1.5 sm:gap-2 p-1 pl-1.5 sm:pl-2 pr-1.5 sm:pr-2.5 rounded-full hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer active-press"
             >
-              <div className="w-7 h-7 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs">
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs">
                 {user.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
               </div>
-              <span className="text-xs font-semibold text-slate-800 max-w-[100px] truncate hidden md:inline">
+              <span className="text-xs font-semibold text-slate-800 max-w-[90px] truncate hidden md:inline">
                 {user.displayName}
               </span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
@@ -133,7 +144,7 @@ export const Header: React.FC = () => {
 
             {/* Profile Dropdown Menu */}
             {dropdownOpen && (
-              <div className="absolute right-0 top-11 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in slide-in-from-top-2">
+              <div className="absolute right-0 top-11 sm:top-12 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in slide-in-from-top-2">
                 {/* User Info Header */}
                 <div className="p-3 border-b border-slate-100">
                   <div className="font-bold text-slate-900 text-sm truncate">
@@ -202,10 +213,11 @@ export const Header: React.FC = () => {
         ) : (
           <button
             onClick={() => setAuthModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm hover:shadow cursor-pointer"
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer active-press"
           >
             <UserIcon className="w-3.5 h-3.5" />
-            <span>Sign up / Log in</span>
+            <span className="hidden sm:inline">Sign up / Log in</span>
+            <span className="sm:hidden">Sign In</span>
           </button>
         )}
       </div>

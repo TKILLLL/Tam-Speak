@@ -575,23 +575,23 @@ export const SpeakingAIView: React.FC = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50 select-none relative">
       {/* Top Header: Companion Status */}
-      <header className="px-6 py-3 border-b border-slate-200 bg-white/95 backdrop-blur-xs flex items-center justify-between shrink-0 shadow-2xs z-10">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+      <header className="px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-200 bg-white/95 backdrop-blur-xs flex items-center justify-between shrink-0 shadow-2xs z-10">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="relative shrink-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-teal-600 to-cyan-500 text-white flex items-center justify-center font-bold text-xs shadow-xs">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
             <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <h2 className="text-sm font-bold text-slate-900">Alex</h2>
-              <span className="text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full shrink-0">
                 Native Companion
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-500 truncate max-w-[220px] sm:max-w-none">
               Natural conversation • Real-time phonetic auto-correction • Ephemeral memory
             </p>
           </div>
@@ -600,16 +600,17 @@ export const SpeakingAIView: React.FC = () => {
         <button
           onClick={handleClearChat}
           title="Clear Chat and Start Fresh"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all active:scale-95"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all active:scale-95 shrink-0"
         >
           <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-          <span>Clear Chat</span>
+          <span className="hidden sm:inline">Clear Chat</span>
+          <span className="sm:hidden">Reset</span>
         </button>
       </header>
 
       {/* Part 1: Upper Chat Area (Scrollable Message Thread) */}
-      <section className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        <div className="max-w-3xl w-full mx-auto space-y-4">
+      <section className="flex-1 overflow-y-auto px-3 sm:px-6 py-3 sm:py-4 space-y-3.5">
+        <div className="max-w-3xl w-full mx-auto space-y-3.5">
           {errorMessage && (
             <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center justify-between shadow-2xs gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -648,7 +649,7 @@ export const SpeakingAIView: React.FC = () => {
 
               {/* Message Bubble */}
               <div
-                className={`max-w-xl p-3.5 rounded-2xl shadow-2xs text-xs leading-relaxed ${
+                className={`max-w-[88%] sm:max-w-xl p-3 sm:p-3.5 rounded-2xl shadow-2xs text-xs leading-relaxed ${
                   msg.speaker === 'user'
                     ? 'bg-teal-600 text-white rounded-tr-xs'
                     : 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs'
@@ -745,17 +746,17 @@ export const SpeakingAIView: React.FC = () => {
       </section>
 
       {/* Part 2: Fixed Audio Station (Pinned permanently at bottom) */}
-      <footer className="shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md px-6 py-3.5 z-10 shadow-lg">
-        <div className="max-w-3xl w-full mx-auto space-y-2.5">
+      <footer className="shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md px-3 sm:px-6 py-2.5 sm:py-3.5 z-10 shadow-lg pb-safe">
+        <div className="max-w-3xl w-full mx-auto space-y-2">
           {/* Live Speech Detection Text (Decoupled atomic 60fps renderer) */}
           <LiveSpeechDetectionBar />
 
           {/* Control Bar: Mini Glowing Orb + Hold [Space] Button + Auto VAD & Clear */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
             {/* Left: Mini Glowing AI Orb & State */}
-            <div className="flex items-center gap-2.5 min-w-[120px]">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
               <MiniGlowingOrb orbState={orbState} />
-              <div className="hidden sm:flex flex-col">
+              <div className="hidden md:flex flex-col">
                 <span className="text-xs font-bold text-slate-800">Alex</span>
                 <span className="text-[10px] text-slate-500">
                   {orbState === 'listening'
@@ -770,13 +771,13 @@ export const SpeakingAIView: React.FC = () => {
             </div>
 
             {/* Center Controls: 1-Click Toggle + Hold Space to Talk */}
-            <div className="flex-1 max-w-md flex items-center justify-center gap-2">
+            <div className="flex-1 max-w-md flex items-center justify-center gap-1.5 sm:gap-2">
               {/* Toggle 1-Click Recording Button (Ấn 1 lần để bật ghi âm, ấn 1 lần nữa để tắt/gửi) */}
               <button
                 type="button"
                 onClick={isHolding ? stopVoiceInput : startVoiceInput}
                 title={isHolding ? 'Bấm để gửi câu trả lời' : 'Bấm 1 lần để mở ghi âm, bấm lần nữa để gửi'}
-                className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active:scale-95 border cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active-press border cursor-pointer shrink-0 ${
                   isHolding
                     ? 'bg-red-500 hover:bg-red-600 text-white border-red-400 ring-2 ring-red-400/20 shadow-md animate-pulse'
                     : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-500 hover:shadow-md'
@@ -804,7 +805,7 @@ export const SpeakingAIView: React.FC = () => {
                 onTouchEnd={stopVoiceInput}
                 onTouchCancel={stopVoiceInput}
                 onContextMenu={(event) => event.preventDefault()}
-                className={`touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active:scale-95 border cursor-pointer ${
+                className={`touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-xs active-press border cursor-pointer ${
                   isHolding
                     ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-md'
                     : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300 hover:shadow-md'
@@ -812,44 +813,47 @@ export const SpeakingAIView: React.FC = () => {
               >
                 {isHolding ? (
                   <>
-                    <span className="relative flex h-2.5 w-2.5">
+                    <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5 shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+                      <span className="relative inline-flex rounded-full h-full w-full bg-white" />
                     </span>
-                    <Mic className="w-4 h-4 animate-pulse" />
-                    <span>Thả để gửi</span>
+                    <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse shrink-0" />
+                    <span className="truncate">Thả để gửi</span>
                   </>
                 ) : (
                   <>
-                    <Mic className="w-4 h-4 text-teal-600" />
-                    <span className="sm:hidden">Hold to Talk</span><span className="hidden sm:inline">Giữ [Space]</span>
+                    <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-600 shrink-0" />
+                    <span className="sm:hidden truncate">Giữ nói</span>
+                    <span className="hidden sm:inline truncate">Giữ [Space]</span>
                   </>
                 )}
               </button>
             </div>
 
             {/* Right: Auto VAD & Clear Chat Actions */}
-            <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
+                type="button"
                 onClick={toggleAutoVad}
                 title="Toggle Hands-Free Voice Activity Detection"
-                className={`flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1 px-2 sm:px-2.5 py-2 rounded-xl border text-[11px] sm:text-xs font-semibold transition-all active-press ${
                   isAutoVadEnabled
                     ? 'bg-teal-50 border-teal-400 text-teal-800 ring-2 ring-teal-400/20'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                <Radio className={`w-3.5 h-3.5 ${isAutoVadEnabled ? 'text-teal-600 animate-pulse' : 'text-slate-400'}`} />
-                <span className="hidden lg:inline">Auto VAD:</span>
+                <Radio className={`w-3.5 h-3.5 shrink-0 ${isAutoVadEnabled ? 'text-teal-600 animate-pulse' : 'text-slate-400'}`} />
+                <span className="hidden lg:inline">VAD:</span>
                 <span>{isAutoVadEnabled ? 'ON' : 'OFF'}</span>
               </button>
 
               <button
+                type="button"
                 onClick={handleClearChat}
                 title="Reset conversation"
-                className="flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-colors"
+                className="flex items-center gap-1 px-2 sm:px-2.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-[11px] sm:text-xs font-semibold transition-colors active-press"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden md:inline">Reset</span>
               </button>
             </div>

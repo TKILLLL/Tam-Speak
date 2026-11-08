@@ -193,25 +193,25 @@ export const OnboardingWizardView: React.FC = () => {
   };
 
   return (
-    <div className="h-full w-full flex flex-col items-center justify-center p-6 overflow-y-auto bg-slate-50 select-none">
-      <div className="max-w-2xl w-full bg-white rounded-3xl border border-slate-200 shadow-xl p-8 relative overflow-hidden">
+    <div className="h-full w-full flex flex-col items-center justify-start sm:justify-center p-3 sm:p-6 overflow-y-auto bg-slate-50 select-none pb-safe">
+      <div className="max-w-2xl w-full bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xl p-4 sm:p-8 relative overflow-hidden my-auto">
         {/* Progress Stepper */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-5 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-4 sm:pb-5 mb-4 sm:mb-6">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm sm:text-base shadow-sm shrink-0">
               TS
             </div>
             <div>
-              <h1 className="text-base font-bold text-slate-900">Thiết lập Lộ trình Học TamSpeak</h1>
-              <p className="text-xs text-slate-500">Bước {step} trên 3: {step === 1 ? 'Mục tiêu & Hồ sơ' : step === 2 ? 'Bài kiểm tra xếp lớp (3 câu)' : 'Kết quả đánh giá'}</p>
+              <h1 className="text-sm sm:text-base font-bold text-slate-900">Thiết lập Lộ trình Học TamSpeak</h1>
+              <p className="text-[11px] sm:text-xs text-slate-500">Bước {step} trên 3: {step === 1 ? 'Mục tiêu & Hồ sơ' : step === 2 ? 'Bài kiểm tra xếp lớp (3 câu)' : 'Kết quả đánh giá'}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {[1, 2, 3].map((s) => (
               <div
                 key={s}
-                className={`w-2.5 h-2.5 rounded-full transition-all ${
-                  step === s ? 'bg-teal-600 w-6' : step > s ? 'bg-teal-400' : 'bg-slate-200'
+                className={`w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full transition-all ${
+                  step === s ? 'bg-teal-600 w-5 sm:w-6' : step > s ? 'bg-teal-400' : 'bg-slate-200'
                 }`}
               />
             ))}
@@ -220,7 +220,7 @@ export const OnboardingWizardView: React.FC = () => {
 
         {/* STEP 1: Profile & Goals */}
         {step === 1 && (
-          <div className="space-y-6 animate-in fade-in">
+          <div className="space-y-4 sm:space-y-6 animate-in fade-in">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                 Tên hiển thị của bạn
@@ -230,7 +230,7 @@ export const OnboardingWizardView: React.FC = () => {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Nhập tên hoặc biệt danh..."
-                className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:outline-hidden focus:border-teal-500 text-sm font-medium"
+                className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl border border-slate-200 focus:outline-hidden focus:border-teal-500 text-sm font-medium"
               />
             </div>
 
@@ -238,13 +238,13 @@ export const OnboardingWizardView: React.FC = () => {
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                 Mục tiêu IELTS Band mong muốn
               </label>
-              <div className="grid grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-2.5">
                 {[6.0, 6.5, 7.0, 7.5, 8.0, 8.5].map((band) => (
                   <button
                     key={band}
                     type="button"
                     onClick={() => setTargetBand(band)}
-                    className={`py-3 rounded-2xl border text-sm font-bold transition-all ${
+                    className={`py-2.5 sm:py-3 rounded-2xl border text-xs sm:text-sm font-bold transition-all active-press ${
                       targetBand === band
                         ? 'border-teal-600 bg-teal-50 text-teal-900 shadow-xs'
                         : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'

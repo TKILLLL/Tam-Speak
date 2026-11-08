@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Mic, Radio, Square } from 'lucide-react';
+import { Mic, Radio, Square, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { useAudioAnalyzer } from '../../../infrastructure/audio/useAudioAnalyzer';
 import { container } from '../../../di/DIContainer';
@@ -25,6 +25,7 @@ export const HoldSpaceToTalk: React.FC = () => {
     currentExaminerPrompt,
     setCurrentExaminerPrompt,
     toggleHideLastMessage,
+    isLastMessageHidden,
     user,
     setRightPanelTab,
     addDialogueTurn,
@@ -574,14 +575,29 @@ export const HoldSpaceToTalk: React.FC = () => {
     };
   }, [isAutoVadEnabled, orbState]);
 
+  // Replay AI audio prompt
+  const handleReplayPrompt = () => {
+    const textToSpeak = currentExaminerPrompt || lastAIMessage;
+    if (textToSpeak) {
+      container.speechTTSEngine.stop();
+      setOrbState('speaking');
+      container.speechTTSEngine.speak(textToSpeak, {
+        onEnd: () => setOrbState('idle'),
+        onError: () => setOrbState('idle'),
+      });
+    }
+  };
+
   return (
-    <div className="flex flex-col items-center gap-3 mt-8 select-none">
-      <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-center">
-        {/* Toggle 1-Click Recording Button (Ấn 1 lần để bật ghi âm, ấn 1 lần nữa để tắt/gửi) */}
+    <div className="flex flex-col items-center gap-2.5 sm:gap-3 mt-3 sm:mt-6 select-none w-full max-w-xl mx-auto px-2">
+      {/* Primary Recording Control Row */}
+      <div className="flex items-center gap-2 sm:gap-3 w-full justify-center">
+        {/* Toggle 1-Click Recording Button (Tap once to talk, tap again to finish) */}
         <button
+          type="button"
           onClick={isHolding ? stopVoiceInput : startVoiceInput}
           title={isHolding ? 'Bấm để hoàn thành và gửi câu trả lời' : 'Bấm 1 lần để mở ghi âm, bấm lần nữa để gửi'}
-          className={`flex items-center gap-2.5 px-6 py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active:scale-95 border cursor-pointer ${
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3.5 sm:py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active-press border cursor-pointer ${
             isHolding
               ? 'bg-red-500 hover:bg-red-600 text-white border-red-400 ring-4 ring-red-400/20 shadow-lg animate-pulse'
               : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-500 hover:shadow-lg'
@@ -590,25 +606,26 @@ export const HoldSpaceToTalk: React.FC = () => {
           {isHolding ? (
             <>
               <Square className="w-4 h-4 fill-white" />
-              <span>Bấm để gửi</span>
+              <span>Bấm gửi</span>
             </>
           ) : (
             <>
               <Mic className="w-4 h-4" />
-              <span>Bấm để nói</span>
+              <span>Bấm nói</span>
             </>
           )}
         </button>
 
-        {/* Main Push-To-Talk Button (Hold Space) */}
+        {/* Push-To-Talk Button (Hold Space or Hold Touch) */}
         <button
+          type="button"
           onMouseDown={startVoiceInput}
           onMouseUp={stopVoiceInput}
           onTouchStart={(event) => { event.preventDefault(); void startVoiceInput(); }}
           onTouchEnd={stopVoiceInput}
           onTouchCancel={stopVoiceInput}
           onContextMenu={(event) => event.preventDefault()}
-          className={`touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] relative group flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active:scale-95 border ${
+          className={`touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-3.5 sm:py-4 rounded-2xl font-bold text-xs tracking-wide transition-all shadow-md active-press border ${
             isHolding
               ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 ring-4 ring-teal-400/20 shadow-lg'
               : 'bg-gradient-to-b from-white to-slate-100 hover:to-slate-200 text-slate-800 border-slate-300 hover:shadow-lg'
@@ -616,40 +633,62 @@ export const HoldSpaceToTalk: React.FC = () => {
         >
           {isHolding ? (
             <>
-              <span className="relative flex h-3 w-3">
+              <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
               </span>
               <Mic className="w-4 h-4 animate-pulse" />
               <span>Thả để gửi</span>
             </>
           ) : (
             <>
-              <Mic className="w-4 h-4 text-teal-600 group-hover:scale-110 transition-transform" />
-              <span className="sm:hidden">Hold to Talk</span><span className="hidden sm:inline">Giữ [Space] để nói</span>
+              <Mic className="w-4 h-4 text-teal-600" />
+              <span className="sm:hidden">Giữ để nói</span>
+              <span className="hidden sm:inline">Giữ [Space] để nói</span>
             </>
           )}
         </button>
 
         {/* Auto VAD Toggle Pill */}
         <button
+          type="button"
           onClick={toggleAutoVad}
           title="Auto Voice Activity Detection (Hands-Free Mode)"
-          className={`flex items-center gap-2 px-3.5 py-3.5 rounded-2xl border text-xs font-semibold transition-all ${
+          className={`flex items-center justify-center gap-1.5 px-3 py-3.5 sm:py-4 rounded-2xl border text-xs font-semibold transition-all active-press ${
             isAutoVadEnabled
-              ? 'bg-teal-50 border-teal-300 text-teal-800'
+              ? 'bg-teal-50 border-teal-300 text-teal-800 ring-2 ring-teal-400/20'
               : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
           }`}
         >
           <Radio className={`w-4 h-4 ${isAutoVadEnabled ? 'text-teal-600 animate-pulse' : 'text-slate-400'}`} />
-          <span className="hidden sm:inline">Auto VAD</span>
+          <span className="hidden sm:inline">VAD</span>
         </button>
       </div>
 
-      <p className="text-[11px] text-slate-400 font-medium">
-        Tip: Press <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px]">R</kbd> to replay,{' '}
-        <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px]">H</kbd> to hide text
-      </p>
+      {/* Quick Action Helpers & Mobile Replay/Hide Bar */}
+      <div className="flex items-center justify-center gap-3 text-[11px] text-slate-500 flex-wrap">
+        <button
+          type="button"
+          onClick={handleReplayPrompt}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-200 shadow-2xs active-press transition-colors"
+          title="Nghe lại câu hỏi từ giám khảo"
+        >
+          <RotateCcw className="w-3.5 h-3.5 text-teal-600" />
+          <span>Nghe lại</span>
+          <kbd className="hidden sm:inline font-mono text-[9px] bg-slate-100 border border-slate-300 px-1 py-0.2 rounded text-slate-500">R</kbd>
+        </button>
+
+        <button
+          type="button"
+          onClick={toggleHideLastMessage}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-200 shadow-2xs active-press transition-colors"
+          title="Ẩn / Hiện văn bản câu hỏi"
+        >
+          {isLastMessageHidden ? <Eye className="w-3.5 h-3.5 text-teal-600" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
+          <span>{isLastMessageHidden ? 'Hiện transcript' : 'Ẩn transcript'}</span>
+          <kbd className="hidden sm:inline font-mono text-[9px] bg-slate-100 border border-slate-300 px-1 py-0.2 rounded text-slate-500">H</kbd>
+        </button>
+      </div>
     </div>
   );
 };
