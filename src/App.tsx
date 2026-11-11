@@ -7,8 +7,6 @@ import { UserStorageService } from './infrastructure/security/UserStorageService
 import { AuthBoundaryGuard } from './infrastructure/security/AuthBoundaryGuard';
 import { setPersonalApiKey } from './infrastructure/ai/AIService';
 
-const ADMIN_EMAILS = ['tamphan@tamspeak.com', 'admin@tamspeak.com'];
-
 export const App: React.FC = () => {
   const {
     setUser,
@@ -38,13 +36,6 @@ export const App: React.FC = () => {
     };
 
     const loadUserProfile = async (userId: string, email: string, metadata: Record<string, any>) => {
-      const lowerEmail = (email || '').toLowerCase();
-      const isAdmin =
-        ADMIN_EMAILS.includes(lowerEmail) ||
-        lowerEmail.endsWith('@tamspeak.com') ||
-        lowerEmail.includes('tamphan') ||
-        metadata?.role === 'admin';
-
       // 1. Hydrate user-scoped preferences and custom topics
       loadUserDataForUser(userId);
       setAuthRequired(false);
@@ -80,7 +71,7 @@ export const App: React.FC = () => {
             streakDays: dbUser.streakDays,
             lastPracticeDate: dbUser.lastPracticeDate,
             totalPracticeMinutes: dbUser.totalPracticeMinutes,
-            role: isAdmin || dbUser.role === 'admin' ? 'admin' : 'user',
+            role: dbUser.role === 'admin' ? 'admin' : 'user',
             hasCompletedOnboarding: isCompleted,
           });
           return;
@@ -103,7 +94,7 @@ export const App: React.FC = () => {
         streakDays: 0,
         lastPracticeDate: null,
         totalPracticeMinutes: 0,
-        role: isAdmin ? 'admin' : 'user',
+        role: 'user',
         hasCompletedOnboarding: false,
       });
     };

@@ -10,7 +10,8 @@
  */
 
 export interface GeminiContentPart {
-  text: string;
+  text?: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
 export interface GeminiContent {
@@ -21,15 +22,17 @@ export interface GeminiContent {
 export interface InputChatMessage {
   role: 'user' | 'assistant' | 'system' | 'model';
   content: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
 export function normalizeGeminiContents(messages: readonly InputChatMessage[]): GeminiContent[] {
   // 1. Filter out system messages and blank utterances
   const validMessages = messages
-    .filter((m) => m.role !== 'system' && m.content && m.content.trim().length > 0)
+    .filter((m) => m.role !== 'system' && (m.content.trim().length > 0 || Boolean(m.inlineData)))
     .map((m) => ({
       role: (m.role === 'assistant' || m.role === 'model' ? 'model' : 'user') as 'user' | 'model',
       text: m.content.trim(),
+      inlineData: m.inlineData,
     }));
 
   if (validMessages.length === 0) {
@@ -53,18 +56,19 @@ export function normalizeGeminiContents(messages: readonly InputChatMessage[]): 
       } else {
         normalized.push({
           role: 'user',
-          parts: [{ text: msg.text }],
+          parts: [{ text: msg.text }, ...(msg.inlineData ? [{ inlineData: msg.inlineData }] : [])],
         });
       }
     } else {
       const last = normalized[normalized.length - 1]!;
       if (last.role === msg.role) {
         // Consecutive turns with the exact same role: merge to preserve strict alternation
-        last.parts.push({ text: msg.text });
+        if (msg.text) last.parts.push({ text: msg.text });
+        if (msg.inlineData) last.parts.push({ inlineData: msg.inlineData });
       } else {
         normalized.push({
           role: msg.role,
-          parts: [{ text: msg.text }],
+          parts: [{ text: msg.text }, ...(msg.inlineData ? [{ inlineData: msg.inlineData }] : [])],
         });
       }
     }

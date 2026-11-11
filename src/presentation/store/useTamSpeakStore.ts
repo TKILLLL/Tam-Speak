@@ -190,6 +190,7 @@ export interface TamSpeakState {
   // Speaking AI: Ephemeral In-Memory Chat (RAM-only, volatile)
   ephemeralMessages: EphemeralTurn[];
   addEphemeralMessage: (turn: EphemeralTurn) => void;
+  updateEphemeralMessage: (id: string, patch: Partial<EphemeralTurn>) => void;
   clearEphemeralMessages: () => void;
 
   // Practice Configuration
@@ -566,6 +567,10 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
       }
       return { ephemeralMessages: [...state.ephemeralMessages, turn] };
     }),
+  updateEphemeralMessage: (id, patch) =>
+    set((state) => ({
+      ephemeralMessages: state.ephemeralMessages.map((turn) => turn.id === id ? { ...turn, ...patch } : turn),
+    })),
   clearEphemeralMessages: () => set({ ephemeralMessages: [] }),
 
   // Practice Configuration

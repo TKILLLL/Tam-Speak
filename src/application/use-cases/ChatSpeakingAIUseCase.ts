@@ -4,6 +4,7 @@ import { TokenBucketRateLimiter } from '../../infrastructure/security/TokenBucke
 export interface ChatSpeakingAIRequest {
   userId: string;
   rawSttInput: string;
+  audioBlob?: Blob;
   conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
 }
 
@@ -27,6 +28,7 @@ export class ChatSpeakingAIUseCase {
     return this.aiGateway.chatSpeakingAI({
       conversationHistory: request.conversationHistory,
       rawSttInput: request.rawSttInput,
+      audioBlob: request.audioBlob,
     });
   }
 }

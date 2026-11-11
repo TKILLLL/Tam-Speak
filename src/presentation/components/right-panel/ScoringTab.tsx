@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Award,
   CheckCircle2,
@@ -48,6 +48,24 @@ export const ScoringTab: React.FC = () => {
         }
       : null
   );
+
+  useEffect(() => {
+    if (!activeSession?.overallScore) {
+      setEvaluationData(null);
+      return;
+    }
+    setEvaluationData({
+      overallScore: activeSession.overallScore,
+      pronunciationScore: activeSession.pronunciationScore ?? 0,
+      fluencyScore: activeSession.fluencyScore ?? 0,
+      lexicalScore: activeSession.lexicalScore ?? 0,
+      grammarScore: activeSession.grammarScore ?? 0,
+      wpm: activeSession.wordsPerMinute ?? 0,
+      hesitationCount: activeSession.hesitationCount ?? 0,
+      strengths: activeSession.detailedFeedback?.strengths ?? [],
+      weaknesses: activeSession.detailedFeedback?.weaknesses ?? [],
+    });
+  }, [activeSession?.id]);
 
   const userTurns = dialogueTurns.filter((d) => d.speaker === 'user');
   const totalUserWords = userTurns.reduce(

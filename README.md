@@ -49,10 +49,9 @@ cp .env.example .env
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-VITE_GEMINI_API_KEY=your-gemini-api-key
 ```
 
-Gemini API Key cũng có thể được nhập trong mục **AI & Voice Settings**. Key cá nhân được lưu trong vùng Local Vault theo user.
+Gemini API Key được nhập trong mục **AI & Voice Settings**. Không đặt Gemini key trong biến `VITE_*`, vì biến này được nhúng vào bundle trình duyệt. Key cá nhân được lưu theo user trong Local Vault.
 
 ## Chạy development
 

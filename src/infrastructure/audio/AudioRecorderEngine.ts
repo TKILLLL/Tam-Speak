@@ -51,7 +51,10 @@ export class AudioRecorderEngine {
     this.startTime = Date.now();
 
     const mimeType = AudioRecorderEngine.getSupportedMimeType();
-    const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+    const options: MediaRecorderOptions = {
+      ...(mimeType ? { mimeType } : {}),
+      audioBitsPerSecond: 32_000,
+    };
 
     this.mediaRecorder = new MediaRecorder(stream, options);
 

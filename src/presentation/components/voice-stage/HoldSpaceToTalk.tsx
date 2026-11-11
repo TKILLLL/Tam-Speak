@@ -208,23 +208,7 @@ export const HoldSpaceToTalk: React.FC = () => {
       return;
     }
 
-    // High-Precision Hybrid Speech Recognition (gemini-3.5-transcribe STT):
-    // Prioritize Gemini transcription from audio blob to accurately recognize Vietnamese names & accents
-    if (recResult?.blob && container.aiGateway.transcribeAudio) {
-      try {
-        const verifiedTranscript = await container.aiGateway.transcribeAudio(
-          recResult.blob,
-          activeTopic?.title || 'English speaking practice'
-        );
-        if (verifiedTranscript && verifiedTranscript.trim().length > 0) {
-          spokenTranscript = verifiedTranscript.trim();
-        }
-      } catch (err) {
-        console.warn('Audio transcription fallback notice:', err);
-      }
-    }
-
-    if (!spokenTranscript.trim()) {
+    if (!spokenTranscript.trim() && !recResult?.blob) {
       setLastAIMessage("Could not detect clear speech. Please hold the Space bar while speaking into your microphone.");
       setOrbState('idle');
       return;
@@ -234,13 +218,15 @@ export const HoldSpaceToTalk: React.FC = () => {
     const actualDurationSeconds = recResult?.durationSeconds || Math.max(1, analyzerStats.durationSeconds);
 
     // Accidental Noise & Murmur Filter
-    const validation = SpeechNoiseFilter.validateSpeech(spokenTranscript, actualDurationSeconds);
-    if (!validation.isValid) {
+    const validation = spokenTranscript.trim()
+      ? SpeechNoiseFilter.validateSpeech(spokenTranscript, actualDurationSeconds)
+      : { isValid: true, cleanedText: '' };
+    if (!validation.isValid && !recResult?.blob) {
       console.warn('Ignored accidental noise or unintelligible speech:', validation.reason, spokenTranscript);
       setOrbState('idle');
       return;
     }
-    spokenTranscript = validation.cleanedText;
+    spokenTranscript = validation.isValid ? validation.cleanedText : spokenTranscript;
     const guestTrialTurn = !user ? incrementGuestTrialTurns() : null;
 
     // 4. Optimistic UI: Append User Dialogue Turn immediately (0ms latency feedback)
@@ -308,6 +294,7 @@ export const HoldSpaceToTalk: React.FC = () => {
         topicTitle: topicName,
         currentQuestion: promptToEvaluate,
         userAnswer: spokenTranscript,
+        audioBlob: recResult?.blob,
         nextPlannedQuestion: plannedNextQuestion || undefined,
         isFullMock: Boolean(currentMock),
         partName: activePart,

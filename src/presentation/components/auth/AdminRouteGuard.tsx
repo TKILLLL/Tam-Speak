@@ -6,19 +6,11 @@ interface AdminRouteGuardProps {
   children: React.ReactNode;
 }
 
-const ADMIN_EMAILS = ['tamphan@tamspeak.com', 'admin@tamspeak.com'];
-
 export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({ children }) => {
   const { user, setCurrentView } = useTamSpeakStore();
 
   const userEmail = (user?.email || '').toLowerCase();
-  const isAuthorizedAdmin =
-    user?.role === 'admin' &&
-    Boolean(
-      ADMIN_EMAILS.includes(userEmail) ||
-      userEmail.endsWith('@tamspeak.com') ||
-      userEmail.includes('tamphan')
-    );
+  const isAuthorizedAdmin = user?.role === 'admin' && Boolean(userEmail);
 
   if (!isAuthorizedAdmin) {
     return (

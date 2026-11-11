@@ -13,19 +13,12 @@ export function clearPersonalApiKey(): void {
   inMemoryPersonalApiKey = null;
 }
 
-// Base64 decoded fallback key to comply with repository push security policies
-export const DEFAULT_GEMINI_FALLBACK_KEY =
-  typeof atob !== 'undefined'
-    ? atob('QVEuQWI4Uk42SXJYUk9uWmUyd1JOTUluOGdUc211dlAxWFNmRVZXaHZ4UDhqWFZ6VEhfOWc=')
-    : Buffer.from('QVEuQWI4Uk42SXJYUk9uWmUyd1JOTUluOGdUc211dlAxWFNmRVZXaHZ4UDhqWFZ6VEhfOWc=', 'base64').toString('utf-8');
-
 export const GEMINI_MODELS_FALLBACK_CHAIN = [
   'gemini-3.8-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
-  'gemini-4-argon',
 ] as const;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
@@ -34,8 +27,7 @@ export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
  * Global single source of truth for resolving active Google Gemini API Key:
  * 1. Ephemeral In-Memory Personal Key (RAM only)
  * 2. User-isolated Vault Key from UserStorageService (`tamspeak_vault_gemini_${userId}`)
- * 3. Vite environment variable VITE_GEMINI_API_KEY
- * 4. Silent internal fallback key (Never exposed to UI / user storage)
+ * No shared or build-time key fallback is allowed.
  */
 export function getActiveGeminiApiKey(): string {
   // 1. In-memory personal key
@@ -55,19 +47,13 @@ export function getActiveGeminiApiKey(): string {
     // ignore
   }
 
-  // 3. Environment variable fallback
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
-    const envKey = import.meta.env.VITE_GEMINI_API_KEY.trim();
-    if (envKey.length > 0) return envKey;
-  }
-
-  // 4. Silent internal default key
-  return DEFAULT_GEMINI_FALLBACK_KEY;
+  return '';
 }
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
 export interface GeneratedVocabHints {
@@ -149,6 +135,9 @@ export class AIService {
       timeoutMs = 8_000,
     } = params;
     const apiKey = this.getActiveApiKey();
+    if (!apiKey) {
+      throw new Error('Chưa có Gemini API Key. Hãy thêm key cá nhân trong Cài đặt → AI & Voice Settings.');
+    }
 
     // Standardize contents with strict user-first multi-turn alternation (Case 1)
     const contents = normalizeGeminiContents(messages);
@@ -327,8 +316,7 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
 
     const userPrompt = `Topic: "${topicTitle}"\nCurrent IELTS Question: "${currentQuestion}"\nGenerate the vocabulary hints JSON now.`;
 
-    try {
-      const raw = await this.generateContent({
+    const raw = await this.generateContent({
         systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         temperature: 0.5,
@@ -337,30 +325,28 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
         timeoutMs: 7_000,
       });
 
-      const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
-        activeKeywords: [],
-        collocations: [],
-        idioms: [],
-      });
-
-      if (
-        Array.isArray(parsed.activeKeywords) &&
-        Array.isArray(parsed.collocations) &&
-        Array.isArray(parsed.idioms) &&
-        parsed.activeKeywords.length > 0
-      ) {
-        this.vocabHintsCache.set(cacheKey, parsed);
-      }
-
-      return parsed;
-    } catch (err) {
-      console.warn('generateVocabHints error:', err);
-      return {
-        activeKeywords: [],
-        collocations: [],
-        idioms: [],
-      };
+    const parsed = this.cleanAndParseJson<GeneratedVocabHints>(raw, {
+      activeKeywords: [], collocations: [], idioms: [],
+    });
+    const valid = (value: unknown): value is GeneratedVocabHints => {
+      if (!value || typeof value !== 'object') return false;
+      const data = value as GeneratedVocabHints;
+      return Array.isArray(data.activeKeywords) && data.activeKeywords.every((item) =>
+        item && typeof item.word === 'string' && typeof item.ipa === 'string' &&
+        typeof item.band === 'string' && typeof item.meaningVi === 'string' && typeof item.example === 'string'
+      ) && Array.isArray(data.collocations) && data.collocations.every((item) =>
+        item && typeof item.phrase === 'string' && typeof item.meaningVi === 'string' && typeof item.example === 'string'
+      ) && Array.isArray(data.idioms) && data.idioms.every((item) =>
+        item && typeof item.idiom === 'string' && typeof item.ipa === 'string' &&
+        typeof item.meaningEn === 'string' && typeof item.meaningVi === 'string' && typeof item.example === 'string'
+      );
+    };
+    if (!valid(parsed) || parsed.activeKeywords.length === 0) {
+      throw new Error('AI trả về dữ liệu gợi ý từ vựng không hợp lệ. Hãy thử làm mới.');
     }
+
+    this.vocabHintsCache.set(cacheKey, parsed);
+    return parsed;
   }
 
   /**
@@ -374,10 +360,11 @@ Provide exactly 5-6 activeKeywords, 5 collocations, and 3-4 natural idioms.`;
     nextPlannedQuestion?: string;
     isFullMock?: boolean;
     partName?: string;
+    audioBlob?: Blob;
   }): Promise<ExaminerTurnResult> {
     const systemPrompt = `You are an authentic, encouraging IELTS Speaking Examiner in a real interview.
 
-ABSOLUTE AUDIO/TRANSCRIPT SAFETY: Never invent a sentence for the candidate. Evaluate only words supported by the provided transcript/audio. If the input is empty or unintelligible, say so plainly, leave inferredIntendedSentence null, and keep mistakes empty.
+ABSOLUTE AUDIO/TRANSCRIPT SAFETY: If audio is attached, listen directly and treat the candidate transcript as an unreliable draft. Never invent a sentence. Evaluate only words supported by the provided transcript/audio. If the input is empty or unintelligible, say so plainly, leave inferredIntendedSentence null, and keep mistakes empty.
 The candidate just answered your question.
 
 VIETNAMESE ENTITIES & CULTURE: The candidate is Vietnamese and may reference Vietnamese proper nouns, regional dishes, or place names (e.g., 'banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'). Recognize and treat these as valid natural proper nouns; do not incorrectly flag them as English mistakes.
@@ -412,14 +399,22 @@ Return ONLY valid JSON:
 
     const userPrompt = `Topic: "${params.topicTitle}" (${params.partName || 'IELTS'})
 Previous Question: "${params.currentQuestion}"
-Candidate Answer: "${params.userAnswer}"
+Web Speech draft (may be inaccurate): "${params.userAnswer || '(unavailable)'}"
 ${params.nextPlannedQuestion ? `Next Planned Question: "${params.nextPlannedQuestion}"` : ''}
 
-Generate JSON evaluation and transition now.`;
+Listen to the attached audio, transcribe it, then generate JSON evaluation and transition.`;
+
+    const userMessage: ChatMessage = { role: 'user', content: userPrompt };
+    if (params.audioBlob) {
+      userMessage.inlineData = {
+        mimeType: params.audioBlob.type.split(';')[0] || 'audio/webm',
+        data: await this.blobToBase64(params.audioBlob),
+      };
+    }
 
     const raw = await this.generateContent({
       systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      messages: [userMessage],
       temperature: 0.6,
       jsonMode: true,
       maxOutputTokens: 1200,
@@ -564,6 +559,14 @@ Return ONLY valid JSON:
         weaknesses: ['Vary lexical collocations', 'Practice complex conditional clauses'],
       };
     }
+  }
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = () => reject(reader.error || new Error('Could not read recorded audio.'));
+      reader.readAsDataURL(blob);
+    });
   }
 }
 

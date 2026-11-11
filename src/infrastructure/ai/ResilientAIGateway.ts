@@ -14,7 +14,7 @@ import { PromptSecurityGuard } from '../security/PromptSecurityGuard';
 import { IAIProviderStrategy, ChatMessagePayload } from './providers/IAIProviderStrategy';
 import { GeminiProviderStrategy } from './providers/GeminiProviderStrategy';
 import { useTamSpeakStore } from '../../presentation/store';
-import { DEFAULT_GEMINI_FALLBACK_KEY, getActiveGeminiApiKey } from './AIService';
+import { getActiveGeminiApiKey } from './AIService';
 import { UserStorageService } from '../security/UserStorageService';
 import { SettingsStore } from '../security/SettingsStore';
 
@@ -76,6 +76,8 @@ const upgradeExpressionOutputSchema = z.object({
 });
 
 const speakingAIChatOutputSchema = z.object({
+  heard: z.string().optional(),
+  intended: z.string().optional(),
   raw_stt_input: z.string().optional(),
   inferred_intended_meaning: z.string().optional(),
   was_stt_misrecognized: z.boolean().optional(),
@@ -104,15 +106,13 @@ export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
-  'gemini-4-argon',
 ] as const;
 
 /**
  * ResilientAIGateway
  * Production Google Gemini Native REST Gateway:
  * - Direct REST fetch with X-goog-api-key header
- * - Official Model Chain: gemini-3.8-flash -> gemini-3.6-flash -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite -> gemini-flash-latest -> gemini-4-argon
- * - Specialized STT: gemini-3.5-transcribe
+ * - Model chain: Gemini 3 Flash models, followed by Flash Lite
  * - Automatic failover on 429/503/404 with instant badge update in Header
  * - Unified Key Resolution (BYOK from LocalStorage -> Env -> Secure Fallback)
  */
@@ -142,7 +142,7 @@ export class ResilientAIGateway implements IAIGateway {
 
     this.setKeyPool('gemini', initialKeys);
 
-    if (initialKey && initialKey !== DEFAULT_GEMINI_FALLBACK_KEY) {
+    if (initialKey) {
       this.personalKeys.set('gemini', initialKey);
     }
   }
@@ -176,14 +176,18 @@ export class ResilientAIGateway implements IAIGateway {
 
   public registerStrategy(strategy: IAIProviderStrategy): void {
     this.strategies.set(strategy.providerId, strategy);
-    this.circuitBreakers.set(strategy.providerId, new CircuitBreaker(strategy.providerId));
+    this.circuitBreakers.set(strategy.providerId, new CircuitBreaker(strategy.providerId, {
+      failureThreshold: 1,
+      recoveryTimeoutMs: 180_000,
+      halfOpenSuccessThreshold: 1,
+    }));
   }
 
   public setKeyPool(provider: 'gemini', keys: string[]): void {
     const validKeys = keys.map((k) => k.trim()).filter((k) => k.length > 0);
     this.keyPools.set(provider, {
       provider,
-      keys: validKeys.length > 0 ? validKeys : [DEFAULT_GEMINI_FALLBACK_KEY],
+      keys: validKeys,
       currentIndex: 0,
     });
   }
@@ -206,7 +210,11 @@ export class ResilientAIGateway implements IAIGateway {
       if (poolKey && poolKey.length > 0) return poolKey;
     }
 
-    return getActiveGeminiApiKey();
+    const activeKey = getActiveGeminiApiKey();
+    if (!activeKey) {
+      throw new Error('Chưa cấu hình Gemini API Key cá nhân. Mở Cài đặt → AI & Voice Settings để thêm key.');
+    }
+    return activeKey;
   }
 
   private rotateKey(providerCategory: 'gemini' = 'gemini'): void {
@@ -218,7 +226,7 @@ export class ResilientAIGateway implements IAIGateway {
 
   /**
    * Gemini Multimodal Audio Transcription using specialized STT models
-   * (gemini-3.5-transcribe -> gemini-3.8-flash -> gemini-3.6-flash)
+   * Uses supported multimodal Flash models for speech transcription.
    */
   public async transcribeAudio(audioBlob: Blob, promptContext?: string): Promise<string> {
     const geminiKey = this.getActiveKey('gemini');
@@ -229,7 +237,7 @@ export class ResilientAIGateway implements IAIGateway {
 
       // STT is on the critical path. Try the specialized model first and only
       // use the general models when Google explicitly reports a transient error.
-      const sttModels = ['gemini-3.5-transcribe', 'gemini-3.8-flash', 'gemini-3.6-flash'];
+      const sttModels = ['gemini-3.8-flash', 'gemini-3.6-flash'];
       const customVocabulary = SettingsStore.getSettings()?.customProperNouns || [];
 
       for (const model of sttModels) {
@@ -339,8 +347,7 @@ export class ResilientAIGateway implements IAIGateway {
         continue;
       }
 
-      const pool = this.keyPools.get('gemini');
-      const attemptsCount = Math.max(1, pool?.keys.length ?? 1);
+      const attemptsCount = 1;
       const perAttemptTimeout = Math.min(options?.timeoutMs || 4_500, remainingTime);
 
       for (let attempt = 0; attempt < attemptsCount; attempt++) {
@@ -440,7 +447,7 @@ export class ResilientAIGateway implements IAIGateway {
     ];
 
     const { response, providerUsed } = await this.executeWithFallback(
-      ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-flash-latest'],
+      ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'],
       hardenedSystemPrompt,
       messages,
       true,
@@ -521,6 +528,7 @@ export class ResilientAIGateway implements IAIGateway {
   public async chatSpeakingAI(params: {
     conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
     rawSttInput: string;
+    audioBlob?: Blob;
   }): Promise<SpeakingAIChatResult> {
     const rawSystemPrompt = [
       `You are a friendly, natural conversational partner named Alex in a real-time voice chat with the user.`,
@@ -530,10 +538,12 @@ export class ResilientAIGateway implements IAIGateway {
       `   - If the user asks YOU a personal/roleplay question (e.g., "How many people are in your family?"), adopt a consistent, relatable persona so the two-way conversation flows naturally like talking to a real person.`,
       `2. REMEMBER FULL CONTEXT: Keep track of every detail the user shared in previous turns (family members, hobbies, feelings, stories) and build upon them naturally.`,
       `3. KEEP IT CONVERSATIONAL FOR VOICE: Keep your responses concise (1 to 3 natural sentences) so it sounds great when read aloud via Text-to-Speech. Never use rigid templates.`,
-      `4. AUTO-INTERPRET STT TYPOS & VIETNAMESE ENTITIES: Since the user's input comes from Speech-to-Text, silently infer intended words if there are homophone errors. If user mentions Vietnamese places or foods ('banh mi', 'Dong Nai', 'pho', 'Da Nang', 'ao dai', 'Ho Chi Minh'), understand and respond naturally without confusing them for English errors.`,
+      `4. TRANSCRIPTION: Treat the Web Speech draft as an unreliable hint. If audio is attached, listen to it directly. Return heard as a faithful transcript without fixing grammar or replacing uncertain words with common words. Return intended as a separate contextual interpretation. Do not mark Vietnamese names, places, or foods as pronunciation errors.`,
       ``,
       `OUTPUT FORMAT: Return ONLY valid JSON:`,
       `{`,
+      `  "heard": "verbatim transcript from audio, empty if no speech",`,
+      `  "intended": "contextual intended wording",`,
       `  "friend_reply": "1 to 3 natural conversational sentences responding directly to what the user said",`,
       `  "inferred_intended_meaning": "The intended text if STT misheard words, otherwise the user's exact words",`,
       `  "was_stt_misrecognized": false,`,
@@ -548,10 +558,15 @@ export class ResilientAIGateway implements IAIGateway {
       role: turn.speaker === 'user' ? 'user' : 'assistant',
       content: turn.text,
     }));
-    messages.push({
+    const latestMessage: ChatMessagePayload = {
       role: 'user',
-      content: PromptSecurityGuard.isolateUserInput(params.rawSttInput),
-    });
+      content: `Web Speech draft (may be inaccurate): ${PromptSecurityGuard.isolateUserInput(params.rawSttInput || '(unavailable)')}\nListen to the attached audio and transcribe what was actually said before replying.`,
+    };
+    if (params.audioBlob) {
+      const mimeType = params.audioBlob.type.split(';')[0] || 'audio/webm';
+      latestMessage.inlineData = { mimeType, data: await this.blobToBase64(params.audioBlob) };
+    }
+    messages.push(latestMessage);
 
     try {
       const { response, providerUsed } = await this.executeWithFallback(
@@ -581,9 +596,9 @@ export class ResilientAIGateway implements IAIGateway {
     try {
       const parsed = PromptSecurityGuard.parseAndValidateJSON(rawResponse, speakingAIChatOutputSchema);
       return {
-        rawSttInput,
-        inferredIntendedMeaning: parsed.inferred_intended_meaning || rawSttInput,
-        wasSttMisrecognized: Boolean(parsed.was_stt_misrecognized),
+        rawSttInput: parsed.heard || parsed.raw_stt_input || rawSttInput,
+        inferredIntendedMeaning: parsed.intended || parsed.inferred_intended_meaning || rawSttInput,
+        wasSttMisrecognized: this.normalizeSpeechText(parsed.heard || parsed.raw_stt_input || rawSttInput) !== this.normalizeSpeechText(parsed.intended || parsed.inferred_intended_meaning || rawSttInput),
         friendReply: parsed.friend_reply,
         casualNativeTip: parsed.casual_native_tip || undefined,
         mispronouncedWords: parsed.mispronounced_words || [],
@@ -625,6 +640,10 @@ export class ResilientAIGateway implements IAIGateway {
         providerUsed,
       };
     }
+  }
+
+  private normalizeSpeechText(value: string): string {
+    return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
   }
 
   public async upgradeExpression(params: {

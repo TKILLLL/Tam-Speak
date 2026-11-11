@@ -20,11 +20,13 @@ export const AuthModal: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (authModalOpen) {
       setIsSignUp(authModalIsSignUp);
       setErrorMsg(null);
+      setSuccessMsg(null);
     }
   }, [authModalOpen, authModalIsSignUp]);
 
@@ -38,11 +40,13 @@ export const AuthModal: React.FC = () => {
     }
     setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     try {
+      const normalizedEmail = email.trim();
       if (isSignUp) {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password,
           options: {
             data: {
@@ -53,12 +57,13 @@ export const AuthModal: React.FC = () => {
 
         if (error) throw error;
         if (data.user) {
-          const userEmail = data.user.email || email;
-          const lowerEmail = userEmail.toLowerCase();
-          const isAdmin =
-            lowerEmail.includes('tamphan') ||
-            lowerEmail.endsWith('@tamspeak.com') ||
-            data.user.user_metadata?.role === 'admin';
+          const userEmail = data.user.email || email.trim();
+          // Supabase may create the Auth user but withhold a session until the
+          // email confirmation link is used. Do not mark that user as signed in.
+          if (!data.session) {
+            setSuccessMsg(`Tài khoản đã được tạo. Hãy mở email ${userEmail} và xác nhận địa chỉ để đăng nhập.`);
+            return;
+          }
           const cleanDisplayName = displayName.trim() || userEmail.split('@')[0] || 'Learner';
 
           setUser({
@@ -71,7 +76,7 @@ export const AuthModal: React.FC = () => {
             streakDays: 0,
             lastPracticeDate: null,
             totalPracticeMinutes: 0,
-            role: isAdmin ? 'admin' : 'user',
+            role: 'user',
             hasCompletedOnboarding: false,
           });
           setAuthRequired(false);
@@ -79,19 +84,13 @@ export const AuthModal: React.FC = () => {
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email,
+          email: normalizedEmail,
           password,
         });
 
         if (error) throw error;
         if (data.user) {
           const userEmail = data.user.email || email;
-          const lowerEmail = userEmail.toLowerCase();
-          const isAdmin =
-            lowerEmail.includes('tamphan') ||
-            lowerEmail.endsWith('@tamspeak.com') ||
-            data.user.user_metadata?.role === 'admin';
-
           try {
             const dbUser = await container.userRepository.findById(data.user.id);
             if (dbUser) {
@@ -106,7 +105,7 @@ export const AuthModal: React.FC = () => {
                 streakDays: dbUser.streakDays,
                 lastPracticeDate: dbUser.lastPracticeDate,
                 totalPracticeMinutes: dbUser.totalPracticeMinutes,
-                role: isAdmin || dbUser.role === 'admin' ? 'admin' : 'user',
+                role: dbUser.role === 'admin' ? 'admin' : 'user',
                 hasCompletedOnboarding: isCompleted,
               });
               setAuthRequired(false);
@@ -130,7 +129,7 @@ export const AuthModal: React.FC = () => {
             streakDays: 0,
             lastPracticeDate: null,
             totalPracticeMinutes: 0,
-            role: isAdmin ? 'admin' : 'user',
+            role: 'user',
             hasCompletedOnboarding: false,
           });
           setAuthRequired(false);
@@ -138,7 +137,12 @@ export const AuthModal: React.FC = () => {
         }
       }
     } catch (err) {
-      setErrorMsg((err as Error).message);
+      const message = (err as Error).message || 'Không thể hoàn tất đăng ký.';
+      setErrorMsg(
+        /already registered|user already exists/i.test(message)
+          ? 'Email này đã có tài khoản. Hãy đăng nhập hoặc dùng chức năng quên mật khẩu.'
+          : message
+      );
     } finally {
       setLoading(false);
     }
@@ -193,6 +197,11 @@ export const AuthModal: React.FC = () => {
         {errorMsg && (
           <div className="mb-4 p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs">
             {errorMsg}
+          </div>
+        )}
+        {successMsg && (
+          <div role="status" className="mb-4 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
+            {successMsg}
           </div>
         )}
 
@@ -301,6 +310,7 @@ export const AuthModal: React.FC = () => {
             onClick={() => {
               setIsSignUp(!isSignUp);
               setErrorMsg(null);
+              setSuccessMsg(null);
             }}
             className="text-xs text-teal-700 hover:text-teal-800 font-medium"
           >

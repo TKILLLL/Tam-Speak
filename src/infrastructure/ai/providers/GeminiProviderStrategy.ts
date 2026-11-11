@@ -56,7 +56,6 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
-        keepalive: true,
       });
 
       if (!response.ok) {
@@ -73,13 +72,12 @@ export class GeminiProviderStrategy implements IAIProviderStrategy {
         }
 
         if (response.status === 400) {
-          const fatalErr = new Error(`Gemini API Error [HTTP 400]: ${redactedError}`);
-          (fatalErr as any).isFatalAuthOrClientError = true;
-          throw fatalErr;
+          throw new Error(`Gemini API Error [HTTP 400] on model ${this.modelName}: ${redactedError}`);
         }
 
+        const retryDelay = redactedError.match(/"retryDelay"\s*:\s*"([^"]+)"/i)?.[1];
         throw new Error(
-          `Gemini API Error [${response.status} ${response.statusText}] on model ${this.modelName}: ${redactedError}`
+          `Gemini API Error [${response.status} ${response.statusText}] on model ${this.modelName}${retryDelay ? `; thử lại sau khoảng ${retryDelay}` : ''}: ${redactedError}`
         );
       }
 

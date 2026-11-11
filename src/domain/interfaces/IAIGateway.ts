@@ -60,6 +60,7 @@ export interface IAIGateway {
   chatSpeakingAI(params: {
     conversationHistory: ReadonlyArray<{ speaker: 'user' | 'ai'; text: string }>;
     rawSttInput: string;
+    audioBlob?: Blob;
   }): Promise<SpeakingAIChatResult>;
 
   upgradeExpression(params: {

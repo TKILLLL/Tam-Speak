@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/test/domain_phase1_test.ts && tsx src/test/security_ai_phase2_test.ts && tsx src/test/application_audio_phase3_test.ts"
+    "test": "tsx src/test/domain_phase1_test.ts && tsx src/test/security_ai_phase2_test.ts && tsx src/test/application_audio_phase3_test.ts && tsx src/test/ai_regression_test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.31.0",

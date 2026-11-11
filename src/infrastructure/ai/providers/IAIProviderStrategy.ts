@@ -1,6 +1,7 @@
 export interface ChatMessagePayload {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
 export interface IAIProviderStrategy {

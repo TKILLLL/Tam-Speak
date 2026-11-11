@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2, Copy, Check, Lightbulb, BookOpen, Sparkles, RefreshCw } from 'lucide-react';
 import { useTamSpeakStore } from '../../store';
 import { container } from '../../../di/DIContainer';
@@ -16,6 +16,8 @@ export const VocabHintsTab: React.FC = () => {
   } = useTamSpeakStore();
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [hintsError, setHintsError] = useState<string | null>(null);
+  const requestId = useRef(0);
   const hasHints = Boolean(
     aiVocabHints &&
       (aiVocabHints.activeKeywords?.length ||
@@ -34,20 +36,26 @@ export const VocabHintsTab: React.FC = () => {
   };
 
   const handleRefreshHints = useCallback(async () => {
+    const request = ++requestId.current;
+    setHintsError(null);
     setIsLoadingVocabHints(true);
     try {
       const topic = activeTopicTitle.trim();
       const prompt = (currentExaminerPrompt || lastAIMessage).trim();
       if (!topic || !prompt) {
         setAiVocabHints(null);
+        setHintsError('Hãy chọn chủ đề và câu hỏi trước khi tạo gợi ý.');
         return;
       }
       const hints = await aiService.generateVocabHints(topic, prompt);
-      setAiVocabHints(hints);
+      if (request === requestId.current) setAiVocabHints(hints);
     } catch (err) {
-      console.warn('Failed to refresh vocab hints:', err);
+      if (request === requestId.current) {
+        setAiVocabHints(null);
+        setHintsError((err as Error).message || 'Không thể tải gợi ý từ vựng. Vui lòng thử lại.');
+      }
     } finally {
-      setIsLoadingVocabHints(false);
+      if (request === requestId.current) setIsLoadingVocabHints(false);
     }
   }, [activeTopicTitle, currentExaminerPrompt, lastAIMessage, setAiVocabHints, setIsLoadingVocabHints]);
 
@@ -57,6 +65,7 @@ export const VocabHintsTab: React.FC = () => {
     if (activeTopicTitle && (currentExaminerPrompt || lastAIMessage)) {
       void handleRefreshHints();
     }
+    return () => { requestId.current += 1; };
   }, [activeTopicTitle, currentExaminerPrompt, lastAIMessage, handleRefreshHints]);
 
   return (
@@ -91,6 +100,14 @@ export const VocabHintsTab: React.FC = () => {
           <div className="h-16 bg-slate-100 rounded-xl animate-pulse" />
           <div className="h-16 bg-slate-100 rounded-xl animate-pulse" />
           <div className="h-16 bg-slate-100 rounded-xl animate-pulse" />
+        </div>
+      ) : hintsError ? (
+        <div className="p-5 text-center border border-amber-200 bg-amber-50 rounded-2xl">
+          <p className="text-xs font-semibold text-amber-900">Không tải được gợi ý từ vựng</p>
+          <p className="text-[11px] text-amber-800 mt-1">{hintsError}</p>
+          <button onClick={handleRefreshHints} className="mt-3 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-xl">
+            Thử lại
+          </button>
         </div>
       ) : aiVocabHints && hasHints ? (
         <>

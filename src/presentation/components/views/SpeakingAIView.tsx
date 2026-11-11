@@ -90,6 +90,7 @@ export const SpeakingAIView: React.FC = () => {
     user,
     ephemeralMessages,
     addEphemeralMessage,
+    updateEphemeralMessage,
     clearEphemeralMessages,
     addPronunciationMistake,
     setCurrentView,
@@ -272,23 +273,7 @@ export const SpeakingAIView: React.FC = () => {
       return;
     }
 
-    // High-Precision Hybrid Speech Recognition (gemini-3.5-transcribe STT):
-    // Prioritize Gemini transcription from audio blob to accurately recognize Vietnamese names & accents
-    if (recResult?.blob && container.aiGateway.transcribeAudio) {
-      try {
-        const verified = await container.aiGateway.transcribeAudio(
-          recResult.blob,
-          'Casual English conversation between close friends'
-        );
-        if (verified && verified.trim().length > 0) {
-          spokenTranscript = verified.trim();
-        }
-      } catch (err) {
-        console.warn('Whisper verification notice:', err);
-      }
-    }
-
-    if (!spokenTranscript.trim()) {
+    if (!spokenTranscript.trim() && !recResult?.blob) {
       setOrbState('idle');
       return;
     }
@@ -333,6 +318,7 @@ export const SpeakingAIView: React.FC = () => {
       const result = await container.chatSpeakingAIUseCase.execute({
         userId,
         rawSttInput: spokenTranscript,
+        audioBlob: recResult?.blob,
         conversationHistory: fullSessionHistory,
       });
 
@@ -340,6 +326,15 @@ export const SpeakingAIView: React.FC = () => {
       if (turnSessionId !== sessionIdRef.current) {
         return;
       }
+
+      const heard = result.rawSttInput.trim();
+      const intended = result.inferredIntendedMeaning.trim();
+      updateEphemeralMessage(optimisticTurnId, {
+        text: result.wasSttMisrecognized && intended ? intended : (heard || spokenTranscript),
+        rawSttInput: heard || spokenTranscript,
+        inferredIntendedMeaning: intended,
+        wasSttMisrecognized: result.wasSttMisrecognized,
+      });
 
       // 7. Save mispronounced words immediately to Pronunciation & IPA Lab
       result.mispronouncedWords?.forEach((m) => {
@@ -392,6 +387,7 @@ export const SpeakingAIView: React.FC = () => {
     }
   }, [
     addEphemeralMessage,
+    updateEphemeralMessage,
     addPronunciationMistake,
     audioAnalyzer,
     setLiveSpeechTranscript,

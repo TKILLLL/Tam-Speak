@@ -33,8 +33,6 @@ const NAV_ITEMS: NavItemConfig[] = [
   { id: 'settings', label: 'AI & Voice Settings', shortLabel: 'Config', icon: Settings },
 ];
 
-const ADMIN_EMAILS = ['tamphan@tamspeak.com', 'admin@tamspeak.com'];
-
 export const Sidebar: React.FC = () => {
   const {
     currentView,
@@ -54,14 +52,7 @@ export const Sidebar: React.FC = () => {
     }
   }, [setSidebarCollapsed]);
 
-  const userEmail = (user?.email || '').toLowerCase();
-  const isAdmin =
-    user?.role === 'admin' &&
-    Boolean(
-      ADMIN_EMAILS.includes(userEmail) ||
-      userEmail.endsWith('@tamspeak.com') ||
-      userEmail.includes('tamphan')
-    );
+  const isAdmin = user?.role === 'admin' && Boolean(user.email);
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
   const guestNavItems = user ? visibleNavItems : visibleNavItems.filter((item) => item.id === 'conversation');
 
