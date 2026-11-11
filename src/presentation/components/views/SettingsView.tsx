@@ -37,6 +37,7 @@ export const SettingsView: React.FC = () => {
 
   // 1. Google Gemini BYOK State
   const [geminiKey, setGeminiKey] = useState('');
+  const [geminiModels, setGeminiModels] = useState<string[]>([...GEMINI_MODELS_FALLBACK_CHAIN]);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [geminiTestStatus, setGeminiTestStatus] = useState<{
     state: 'idle' | 'testing' | 'valid' | 'invalid';
@@ -76,6 +77,7 @@ export const SettingsView: React.FC = () => {
       setGeminiKey(savedGemini.trim());
       container.aiGateway.setPersonalKey?.('gemini', savedGemini.trim(), currentUserId);
       setPersonalApiKey(savedGemini.trim());
+      void container.aiGateway.refreshAvailableModels(savedGemini.trim()).then(setGeminiModels);
     } else {
       setGeminiKey('');
     }
@@ -123,6 +125,8 @@ export const SettingsView: React.FC = () => {
           message: 'Valid API Key! Đã xác thực thành công và lưu vào Local Vault của bạn.',
         });
         setStatusMessage('Đã tự động lưu Google Gemini API Key cá nhân vào Local Vault của bạn!');
+        const discovered = await container.aiGateway.refreshAvailableModels(geminiKey.trim());
+        setGeminiModels(discovered);
         setTimeout(() => setStatusMessage(null), 3500);
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -560,18 +564,21 @@ export const SettingsView: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900">Chuỗi Dự Phòng Tự Động (Gemini Failover Chain)</h3>
               <p className="text-[11px] text-slate-500">
-                Hệ thống tự động xoay tua model Gemini tiếp theo khi gặp HTTP 429 (Rate Limit), 503 hoặc 404.
+                Hệ thống ưu tiên model đã chọn, sau đó fallback qua các model chat được API key của bạn hỗ trợ.
               </p>
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {GEMINI_MODELS_FALLBACK_CHAIN.map((model) => {
+            {geminiModels.map((model) => {
               const isSelected = activeAIProvider === model;
               return (
                 <button
                   key={model}
                   type="button"
-                  onClick={() => setActiveAIProvider(model)}
+                  onClick={() => {
+                    container.aiGateway.setPreferredModel(model);
+                    setActiveAIProvider(model);
+                  }}
                   className={`py-2 px-3 rounded-xl border text-xs font-mono font-medium transition-all ${
                     isSelected
                       ? 'bg-teal-600 text-white border-teal-600 shadow-xs font-bold'

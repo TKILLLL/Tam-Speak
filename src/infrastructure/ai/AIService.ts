@@ -1,6 +1,7 @@
 import { useTamSpeakStore } from '../../presentation/store';
 import { normalizeGeminiContents } from './normalizeGeminiContents';
 import { SettingsStore } from '../security/SettingsStore';
+import { GEMINI_CHAT_MODEL_PRIORITY } from './GeminiModels';
 
 // Ephemeral in-memory personal BYOK key (RAM-only per authenticated user)
 let inMemoryPersonalApiKey: string | null = null;
@@ -13,13 +14,7 @@ export function clearPersonalApiKey(): void {
   inMemoryPersonalApiKey = null;
 }
 
-export const GEMINI_MODELS_FALLBACK_CHAIN = [
-  'gemini-3.8-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-  'gemini-flash-latest',
-] as const;
+export const GEMINI_MODELS_FALLBACK_CHAIN = GEMINI_CHAT_MODEL_PRIORITY;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
 

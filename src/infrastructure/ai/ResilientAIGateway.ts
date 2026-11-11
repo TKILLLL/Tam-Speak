@@ -17,6 +17,7 @@ import { useTamSpeakStore } from '../../presentation/store';
 import { getActiveGeminiApiKey } from './AIService';
 import { UserStorageService } from '../security/UserStorageService';
 import { SettingsStore } from '../security/SettingsStore';
+import { GEMINI_CHAT_MODEL_PRIORITY } from './GeminiModels';
 
 // --- Zod Schemas for LLM Output Validation ---
 
@@ -100,13 +101,7 @@ export interface KeyPoolEntry {
   currentIndex: number;
 }
 
-export const DEFAULT_GEMINI_PROVIDER_CHAIN = [
-  'gemini-3.8-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-  'gemini-flash-latest',
-] as const;
+export const DEFAULT_GEMINI_PROVIDER_CHAIN = GEMINI_CHAT_MODEL_PRIORITY;
 
 /**
  * ResilientAIGateway
@@ -122,6 +117,7 @@ export class ResilientAIGateway implements IAIGateway {
   private readonly keyPools: Map<string, KeyPoolEntry> = new Map();
   private readonly personalKeys: Map<string, string> = new Map();
   private activeProviderIndex = 0;
+  private discoveredModels: string[] = [];
 
   constructor(
     customKeyConfig?: {
@@ -144,17 +140,23 @@ export class ResilientAIGateway implements IAIGateway {
 
     if (initialKey) {
       this.personalKeys.set('gemini', initialKey);
+      void this.refreshAvailableModels(initialKey);
     }
   }
 
   public setPersonalKey(provider: 'gemini', key: string | null, userId?: string | null): void {
     if (!key || key.trim().length === 0) {
       this.personalKeys.delete(provider);
+      this.setKeyPool(provider, []);
+      this.discoveredModels = [];
+      this.activeProviderIndex = 0;
       UserStorageService.setUserPersonalApiKey(null, userId);
     } else {
       const trimmed = key.trim();
       this.personalKeys.set(provider, trimmed);
+      this.setKeyPool(provider, [trimmed]);
       UserStorageService.setUserPersonalApiKey(trimmed, userId);
+      void this.refreshAvailableModels(trimmed);
     }
   }
 
@@ -172,6 +174,61 @@ export class ResilientAIGateway implements IAIGateway {
 
   public clearPersonalKeys(): void {
     this.personalKeys.clear();
+    this.discoveredModels = [];
+  }
+
+  /** Refresh the account-specific catalog without adding latency to voice turns. */
+  public async refreshAvailableModels(apiKey = this.getActiveKey()): Promise<string[]> {
+    const available: string[] = [];
+    let pageToken: string | undefined;
+    try {
+      do {
+        const url = new URL('https://generativelanguage.googleapis.com/v1beta/models');
+        url.searchParams.set('pageSize', '1000');
+        if (pageToken) url.searchParams.set('pageToken', pageToken);
+        const response = await fetch(url, {
+          headers: { 'X-goog-api-key': apiKey.trim() },
+          cache: 'no-store',
+        });
+        if (!response.ok) throw new Error(`ListModels returned HTTP ${response.status}`);
+        const payload = await response.json() as {
+          models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+          nextPageToken?: string;
+        };
+        for (const model of payload.models || []) {
+          if (!model.name || !model.supportedGenerationMethods?.includes('generateContent')) continue;
+          const id = model.name.replace(/^models\//, '');
+          if (/live|tts|transcribe|translate|image|embedding|omni|lyria|robotics|research|agent/i.test(id)) continue;
+          available.push(id);
+          if (!this.strategies.has(id)) this.registerStrategy(new GeminiProviderStrategy(id, id));
+        }
+        pageToken = payload.nextPageToken;
+      } while (pageToken);
+      this.discoveredModels = [...new Set(available)];
+      return this.getProviderChain();
+    } catch {
+      // ListModels is best-effort. Keep the maintained catalog as fallback.
+      return this.getProviderChain();
+    }
+  }
+
+  private getProviderChain(): string[] {
+    if (this.discoveredModels.length === 0) return [...DEFAULT_GEMINI_PROVIDER_CHAIN];
+    const available = new Set(this.discoveredModels);
+    const preferred = DEFAULT_GEMINI_PROVIDER_CHAIN.filter((id) => available.has(id));
+    return [...new Set([...preferred, ...this.discoveredModels])];
+  }
+
+  public getAvailableModelIds(): string[] {
+    return this.getProviderChain();
+  }
+
+  public setPreferredModel(modelId: string): void {
+    const index = this.getProviderChain().indexOf(modelId);
+    if (index >= 0 && this.strategies.has(modelId)) {
+      this.activeProviderIndex = index;
+      useTamSpeakStore.getState().setActiveAIProvider(modelId);
+    }
   }
 
   public registerStrategy(strategy: IAIProviderStrategy): void {
@@ -499,7 +556,7 @@ export class ResilientAIGateway implements IAIGateway {
 
     try {
       const { response, providerUsed } = await this.executeWithFallback(
-        DEFAULT_GEMINI_PROVIDER_CHAIN,
+        this.getProviderChain(),
         hardenedSystemPrompt,
         messages,
         true,
@@ -570,7 +627,7 @@ export class ResilientAIGateway implements IAIGateway {
 
     try {
       const { response, providerUsed } = await this.executeWithFallback(
-        DEFAULT_GEMINI_PROVIDER_CHAIN,
+        this.getProviderChain(),
         PromptSecurityGuard.buildHardenedSystemPrompt(rawSystemPrompt),
         messages,
         true,
@@ -675,7 +732,7 @@ export class ResilientAIGateway implements IAIGateway {
     ];
 
     const { response } = await this.executeWithFallback(
-      DEFAULT_GEMINI_PROVIDER_CHAIN,
+      this.getProviderChain(),
       hardenedSystemPrompt,
       messages,
       true,
