@@ -151,7 +151,7 @@ export class AIService {
 
       const modelIndex = (this.activeModelIndex + i) % GEMINI_MODELS_FALLBACK_CHAIN.length;
       const modelName = GEMINI_MODELS_FALLBACK_CHAIN[modelIndex]!;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+      const url = `/api/gemini/models/${modelName}:generateContent`;
 
       const requestPayload: Record<string, unknown> = {
         contents,

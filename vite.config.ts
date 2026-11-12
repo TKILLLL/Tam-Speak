@@ -12,5 +12,12 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    proxy: {
+      '/api/gemini': {
+        target: 'https://generativelanguage.googleapis.com',
+        changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/api\/gemini/, '/v1beta'),
+      },
+    },
   },
 });
