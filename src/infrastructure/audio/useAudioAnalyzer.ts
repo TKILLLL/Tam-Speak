@@ -24,6 +24,7 @@ export interface UseAudioAnalyzerReturn extends AudioAnalyzerState {
     wpm: number;
     durationSeconds: number;
     silenceDurations: number[];
+    peakLevel: number;
   };
 }
 
@@ -52,6 +53,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
   const recordingStartTimeRef = useRef(0);
   const silenceStartTimeRef = useRef<number | null>(null);
   const detectedHesitationsRef = useRef<HesitationMarker[]>([]);
+  const peakLevelRef = useRef(0);
 
   // Silence threshold: RMS below 0.015 is considered silence/pause
   const SILENCE_RMS_THRESHOLD = 0.015;
@@ -73,6 +75,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
     }
     const rms = Math.sqrt(sumSquares / timeData.length);
     const normalizedLevel = Math.min(1.0, rms * 5.0); // Boosted for UI visualization
+    peakLevelRef.current = Math.max(peakLevelRef.current, normalizedLevel);
 
     // 60FPS Direct GPU Broadcast: Update visualizers without triggering React virtual DOM tree re-render
     SharedAudioContext.broadcastLevel(normalizedLevel);
@@ -159,6 +162,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
     streamRef.current = stream;
 
     detectedHesitationsRef.current = [];
+    peakLevelRef.current = 0;
     setHesitations([]);
     setTotalSilenceSeconds(0);
     setCurrentWpm(0);
@@ -220,6 +224,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
       wpm: calculatedWpm,
       durationSeconds: finalDuration,
       silenceDurations,
+      peakLevel: peakLevelRef.current,
     };
   }, []);
 

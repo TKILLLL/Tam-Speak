@@ -58,7 +58,10 @@ export class SentenceTTSQueue {
   private queue: string[] = [];
   private active = false;
 
-  constructor(private readonly speak: (text: string, done: () => void) => void) {}
+  constructor(
+    private readonly speak: (text: string, done: () => void) => void,
+    private readonly onDrained?: () => void
+  ) {}
 
   enqueue(sentence: string): void {
     const cleaned = cleanVoiceText(sentence);
@@ -68,7 +71,11 @@ export class SentenceTTSQueue {
   }
 
   private drain(): void {
-    if (this.active || this.queue.length === 0) return;
+    if (this.active) return;
+    if (this.queue.length === 0) {
+      this.onDrained?.();
+      return;
+    }
     this.active = true;
     const next = this.queue.shift()!;
     this.speak(next, () => {

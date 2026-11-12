@@ -18,6 +18,9 @@ import { SharedAudioContext } from '../../../infrastructure/audio/SharedAudioCon
 import { LiveSpeechDetectionBar } from '../voice-stage/LiveSpeechDetectionBar';
 import { container } from '../../../di/DIContainer';
 import { aiService } from '../../../infrastructure/ai/AIService';
+import { GeminiStreamingService, SentenceTTSQueue } from '../../../infrastructure/ai/GeminiStreamingService';
+
+const geminiStreamingService = new GeminiStreamingService();
 
 const MiniGlowingOrb: React.FC<{ orbState: OrbState }> = ({
   orbState,
@@ -255,8 +258,6 @@ export const SpeakingAIView: React.FC = () => {
 
     // 2. Stop Audio Analyzer
     const wordCount = spokenTranscript.split(/\s+/).filter(Boolean).length;
-    audioAnalyzer.stopAnalyzing(wordCount);
-
     // 3. Stop MediaRecorder
     const userId = user?.id || 'guest-user';
     const tempSessionId = `speaking-ai-${Date.now()}`;
@@ -267,7 +268,9 @@ export const SpeakingAIView: React.FC = () => {
       // safe fallback
     }
 
-    if (!recResult?.blob || recResult.durationSeconds < 0.5 || audioAnalyzer.audioLevel < 0.02) {
+    const analyzerStats = audioAnalyzer.stopAnalyzing(wordCount);
+
+    if (!recResult?.blob || recResult.blob.size === 0 || recResult.durationSeconds < 0.5 || analyzerStats.peakLevel < 0.02) {
       setErrorMessage('Không nghe thấy giọng nói. Hãy giữ nút và nói rõ hơn vào micro.');
       setOrbState('idle');
       return;
@@ -315,58 +318,51 @@ export const SpeakingAIView: React.FC = () => {
     try {
       lastApiCallTimestampRef.current = Date.now();
 
-      const result = await container.chatSpeakingAIUseCase.execute({
-        userId,
-        rawSttInput: spokenTranscript,
-        audioBlob: recResult?.blob,
-        conversationHistory: fullSessionHistory,
-      });
-
-      // Async Race Condition Check: If user cleared chat or left view, drop stale result
-      if (turnSessionId !== sessionIdRef.current) {
-        return;
-      }
-
-      const heard = result.rawSttInput.trim();
-      const intended = result.inferredIntendedMeaning.trim();
       updateEphemeralMessage(optimisticTurnId, {
-        text: result.wasSttMisrecognized && intended ? intended : (heard || spokenTranscript),
-        rawSttInput: heard || spokenTranscript,
-        inferredIntendedMeaning: intended,
-        wasSttMisrecognized: result.wasSttMisrecognized,
+        text: spokenTranscript,
+        rawSttInput: spokenTranscript,
+        inferredIntendedMeaning: spokenTranscript,
+        wasSttMisrecognized: false,
       });
 
-      // 7. Save mispronounced words immediately to Pronunciation & IPA Lab
-      result.mispronouncedWords?.forEach((m) => {
-        addPronunciationMistake({
-          word: m.word,
-          ipa: m.ipa,
-          contextSentence: result.inferredIntendedMeaning || spokenTranscript,
-          errorReason: m.reason,
-          suggestedAlternative: 'Practiced with Alex (Native Companion)',
-          topicTitle: 'Speaking AI (Casual Chat)',
-        });
-      });
-
-      // 8. Push AI Turn
+      // One Gemini SSE request per turn; sentence chunks are displayed and spoken as they arrive.
       const aiTurn: EphemeralTurn = {
         id: `ephem-ai-${Date.now()}`,
         speaker: 'ai',
-        text: result.friendReply,
+        text: '',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       addEphemeralMessage(aiTurn);
-
-      // 9. Play AI speech reply via TTS
       setOrbState('speaking');
-      container.speechTTSEngine.speak(result.friendReply, {
-        onEnd: () => {
-          if (isMountedRef.current) setOrbState('idle');
-        },
-        onError: () => {
-          if (isMountedRef.current) setOrbState('idle');
+      let streamedReply = '';
+      let streamComplete = false;
+      const ttsQueue = new SentenceTTSQueue((sentence, done) => {
+        container.speechTTSEngine.speak(sentence, {
+          onEnd: done,
+          onError: done,
+        });
+      }, () => {
+        if (streamComplete && isMountedRef.current) setOrbState('idle');
+      });
+      const reply = await geminiStreamingService.streamReply({
+        apiKey: aiService.getActiveApiKey(),
+        history: [
+          ...fullSessionHistory.slice(-6).map((turn) => ({ role: turn.speaker === 'ai' ? 'model' as const : 'user' as const, text: turn.text })),
+          { role: 'user', text: spokenTranscript },
+        ],
+        signal: activeAbortControllerRef.current.signal,
+        onSentence: (sentence) => {
+          if (turnSessionId !== sessionIdRef.current) return;
+          streamedReply = `${streamedReply}${streamedReply ? ' ' : ''}${sentence}`;
+          updateEphemeralMessage(aiTurn.id, { text: streamedReply });
+          ttsQueue.enqueue(sentence);
         },
       });
+      if (turnSessionId !== sessionIdRef.current) return;
+      if (!streamedReply && reply) updateEphemeralMessage(aiTurn.id, { text: reply });
+      streamComplete = true;
+      if (!reply) throw new Error('Gemini returned an empty reply.');
+      if (!container.speechTTSEngine.isCurrentlySpeaking()) setOrbState('idle');
     } catch (err) {
       console.error('Speaking AI conversation error:', err);
       setOrbState('idle');

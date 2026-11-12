@@ -189,8 +189,6 @@ export const HoldSpaceToTalk: React.FC = () => {
 
     // 2. Stop Audio Analyzer & calculate WPM
     const wordCount = spokenTranscript.split(/\s+/).filter(Boolean).length;
-    const analyzerStats = audioAnalyzer.stopAnalyzing(wordCount);
-
     // 3. Stop MediaRecorder and commit Blob to Dexie
     const userId = user?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'guest-user');
     const sessionId = activeSession?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`);
@@ -202,7 +200,9 @@ export const HoldSpaceToTalk: React.FC = () => {
       // Safe fallback
     }
 
-    if (!recResult?.blob || recResult.durationSeconds < 0.5 || audioAnalyzer.audioLevel < 0.02) {
+    const analyzerStats = audioAnalyzer.stopAnalyzing(wordCount);
+
+    if (!recResult?.blob || recResult.blob.size === 0 || recResult.durationSeconds < 0.5 || analyzerStats.peakLevel < 0.02) {
       setLastAIMessage('Không nghe thấy giọng nói. Hãy giữ nút và nói rõ hơn vào micro.');
       setOrbState('idle');
       return;
