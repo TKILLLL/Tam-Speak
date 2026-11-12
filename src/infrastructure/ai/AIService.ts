@@ -178,7 +178,6 @@ export class AIService {
           },
           body: JSON.stringify(requestPayload),
           signal: controller.signal,
-          keepalive: true,
         });
 
         clearTimeout(timeoutTimer);
