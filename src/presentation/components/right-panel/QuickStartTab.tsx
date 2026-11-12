@@ -232,22 +232,8 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
-    // 4. Start practice session in domain
-    try {
-      const { PracticeSession: PSClass } = await import('../../../domain/entities/PracticeSession');
-      const newSession = PSClass.create({
-        id: sessionId,
-        userId,
-        mode,
-        topicId,
-      });
-      newSession.startRecording();
-      await container.sessionRepository.save(newSession);
-    } catch (err) {
-      console.warn('Session save notice:', err);
-    }
-
-    // 5. Set active session in store without hardcoded scores (real evaluation required)
+    // 4. Activate the session immediately; persist it in the background so local
+    // storage/network latency cannot block the Start Practice interaction.
     setActiveSession({
       id: sessionId,
       userId,
@@ -268,24 +254,24 @@ export const QuickStartTab: React.FC = () => {
       createdAt: new Date().toISOString(),
     });
 
+    void import('../../../domain/entities/PracticeSession')
+      .then(({ PracticeSession: PSClass }) => {
+        const newSession = PSClass.create({ id: sessionId, userId, mode, topicId });
+        newSession.startRecording();
+        return container.sessionRepository.save(newSession);
+      })
+      .catch((err) => console.warn('Session save notice:', err));
+
     const calculatedPart = mapPresetToActivePart(preset.id, mode);
     setActivePart(calculatedPart);
     setActiveTopicTitle(title);
 
-    // 6. 100% Dynamic AI Examiner initial prompts via Gemini (Zero raw question bank data)
-    let greeting = '';
-    try {
-      greeting = await aiService.generateTopicOpening({
-        topicTitle: title,
-        mode: !user ? 'roleplay' : mode,
-        part: calculatedPart,
-        aiRole,
-        userRole,
-      });
-    } catch (error) {
-      console.warn('Could not generate the opening prompt:', error);
-      greeting = '';
-    }
+    // 5. Start with a useful local opener. Practice must be usable even when
+    // Gemini is slow or temporarily unavailable.
+    const isRoleplay = mode !== 'ielts_full_mock' && mode !== 'ielts_part1' && mode !== 'ielts_part2' && mode !== 'ielts_part3';
+    const greeting = isRoleplay
+      ? `Hi! Let's talk about ${title}. What would you like to share first?`
+      : `Let's begin with ${title}. Could you tell me a little about your experience with this?`;
 
     if (mode === 'ielts_full_mock') {
       setMockTestProgress({
