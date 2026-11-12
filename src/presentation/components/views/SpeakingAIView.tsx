@@ -9,6 +9,7 @@ import {
   CheckCircle,
   Lightbulb,
   Square,
+  RefreshCw,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTamSpeakStore, EphemeralTurn, OrbState } from '../../store';
@@ -94,13 +95,16 @@ export const SpeakingAIView: React.FC = () => {
     ephemeralMessages,
     addEphemeralMessage,
     updateEphemeralMessage,
+    removeEphemeralMessage,
     clearEphemeralMessages,
     addPronunciationMistake,
     setCurrentView,
+    activeAIProvider,
   } = useTamSpeakStore();
 
   const [isHolding, setIsHolding] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const audioAnalyzer = useAudioAnalyzer();
   const transcriptBufferRef = useRef('');
   const isHoldingRef = useRef(false);
@@ -310,7 +314,12 @@ export const SpeakingAIView: React.FC = () => {
 
     // 6. Stale Closure Fix: Always read the latest full session history directly from store
     const latestMessages = useTamSpeakStore.getState().ephemeralMessages;
-    const fullSessionHistory = latestMessages.map((m) => ({
+    const historyMessages = [...latestMessages];
+    const latestMessage = historyMessages[historyMessages.length - 1];
+    if (latestMessage?.speaker === 'user' && latestMessage.text === spokenTranscript) {
+      historyMessages.pop();
+    }
+    const fullSessionHistory = historyMessages.map((m) => ({
       speaker: m.speaker,
       text: m.text,
     }));
@@ -346,6 +355,7 @@ export const SpeakingAIView: React.FC = () => {
       });
       const reply = await geminiStreamingService.streamReply({
         apiKey: aiService.getActiveApiKey(),
+        model: activeAIProvider || aiService.getCurrentModel(),
         history: [
           ...fullSessionHistory.slice(-6).map((turn) => ({ role: turn.speaker === 'ai' ? 'model' as const : 'user' as const, text: turn.text })),
           { role: 'user', text: spokenTranscript },
@@ -371,15 +381,6 @@ export const SpeakingAIView: React.FC = () => {
         'Chưa cấu hình API Key hoặc kết nối AI thất bại. Vui lòng kiểm tra API Key Google Gemini trong mục "AI & Voice Settings".';
       setErrorMessage(errorMsg);
 
-      // Preserve user speech in the ephemeral stream without fake AI reply
-      const userTurn: EphemeralTurn = {
-        id: `ephem-user-${Date.now()}`,
-        speaker: 'user',
-        text: spokenTranscript,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        rawSttInput: spokenTranscript,
-      };
-      addEphemeralMessage(userTurn);
     }
   }, [
     addEphemeralMessage,
@@ -389,6 +390,7 @@ export const SpeakingAIView: React.FC = () => {
     setLiveSpeechTranscript,
     setOrbState,
     user?.id,
+    activeAIProvider,
   ]);
 
   useEffect(() => {
@@ -512,6 +514,50 @@ export const SpeakingAIView: React.FC = () => {
       },
     });
   };
+
+  const handleRetryUserMessage = useCallback(async (message: EphemeralTurn) => {
+    if (retryingMessageId || !message.text.trim()) return;
+    const currentMessages = useTamSpeakStore.getState().ephemeralMessages;
+    const messageIndex = currentMessages.findIndex((item) => item.id === message.id);
+    if (messageIndex < 0) return;
+
+    setRetryingMessageId(message.id);
+    setErrorMessage(null);
+    setOrbState('thinking');
+    const history = currentMessages.slice(0, messageIndex).map((turn) => ({
+      role: turn.speaker === 'ai' ? 'model' as const : 'user' as const,
+      text: turn.text,
+    }));
+    const aiTurn: EphemeralTurn = {
+      id: `ephem-ai-retry-${Date.now()}`,
+      speaker: 'ai',
+      text: '',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    addEphemeralMessage(aiTurn);
+    let streamedReply = '';
+
+    try {
+      const reply = await geminiStreamingService.streamReply({
+        apiKey: aiService.getActiveApiKey(),
+        model: activeAIProvider || aiService.getCurrentModel(),
+        history: [...history.slice(-6), { role: 'user', text: message.text }],
+        onSentence: (sentence) => {
+          streamedReply = `${streamedReply}${streamedReply ? ' ' : ''}${sentence}`;
+          updateEphemeralMessage(aiTurn.id, { text: streamedReply });
+        },
+      });
+      if (!streamedReply && reply) updateEphemeralMessage(aiTurn.id, { text: reply });
+      if (!reply) throw new Error('Gemini returned an empty reply.');
+      handleReplayAIMessage(reply);
+    } catch (err) {
+      removeEphemeralMessage(aiTurn.id);
+      setErrorMessage((err as Error).message || 'Không thể tải lại phản hồi AI.');
+      setOrbState('idle');
+    } finally {
+      setRetryingMessageId(null);
+    }
+  }, [activeAIProvider, addEphemeralMessage, removeEphemeralMessage, retryingMessageId, setOrbState, updateEphemeralMessage]);
 
   // Reset / Clear Chat Stream
   const handleClearChat = () => {
@@ -643,10 +689,21 @@ export const SpeakingAIView: React.FC = () => {
               <div
                 className={`max-w-[88%] sm:max-w-xl p-3 sm:p-3.5 rounded-2xl shadow-2xs text-xs leading-relaxed ${
                   msg.speaker === 'user'
-                    ? 'bg-teal-600 text-white rounded-tr-xs'
+                    ? 'relative bg-teal-600 text-white rounded-tr-xs pr-10'
                     : 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs'
                 }`}
               >
+                {msg.speaker === 'user' && (
+                  <button
+                    onClick={() => void handleRetryUserMessage(msg)}
+                    disabled={retryingMessageId !== null}
+                    className="absolute top-2 right-2 p-1 rounded-md text-teal-100 hover:text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Tải lại phản hồi AI"
+                    aria-label="Tải lại phản hồi AI cho câu nói này"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${retryingMessageId === msg.id ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
                 {/* Contextual Phonetic Auto-Correction Box (Requirement 4) */}
                 {msg.speaker === 'user' && msg.wasSttMisrecognized && (
                   <div className="mb-2 p-2 rounded-xl bg-teal-700/70 border border-teal-500/80 text-[11px] space-y-1">

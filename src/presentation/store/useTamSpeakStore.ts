@@ -191,6 +191,7 @@ export interface TamSpeakState {
   ephemeralMessages: EphemeralTurn[];
   addEphemeralMessage: (turn: EphemeralTurn) => void;
   updateEphemeralMessage: (id: string, patch: Partial<EphemeralTurn>) => void;
+  removeEphemeralMessage: (id: string) => void;
   clearEphemeralMessages: () => void;
 
   // Practice Configuration
@@ -570,6 +571,10 @@ export const useTamSpeakStore = create<TamSpeakState>((set, get) => ({
   updateEphemeralMessage: (id, patch) =>
     set((state) => ({
       ephemeralMessages: state.ephemeralMessages.map((turn) => turn.id === id ? { ...turn, ...patch } : turn),
+    })),
+  removeEphemeralMessage: (id) =>
+    set((state) => ({
+      ephemeralMessages: state.ephemeralMessages.filter((turn) => turn.id !== id),
     })),
   clearEphemeralMessages: () => set({ ephemeralMessages: [] }),
 

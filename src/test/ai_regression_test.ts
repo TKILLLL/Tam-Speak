@@ -3,6 +3,7 @@ import { ResilientAIGateway } from '../infrastructure/ai/ResilientAIGateway';
 import { normalizeGeminiContents } from '../infrastructure/ai/normalizeGeminiContents';
 import { CircuitBreaker } from '../infrastructure/security/CircuitBreaker';
 import { IAIProviderStrategy } from '../infrastructure/ai/providers/IAIProviderStrategy';
+import { GeminiStreamingService } from '../infrastructure/ai/GeminiStreamingService';
 
 async function main() {
   console.log('Testing audio payload normalization, transcript comparison, model fallback and cooldown...');
@@ -12,6 +13,38 @@ async function main() {
   }]);
   assert.equal(normalized[0]?.parts.length, 2);
   assert.equal(normalized[0]?.parts[1]?.inlineData?.data, 'AQID');
+
+  const streamingService = new GeminiStreamingService();
+  const originalFetch = globalThis.fetch;
+  let streamingRequest: { url: string; body: any } | null = null;
+  globalThis.fetch = (async (input, init) => {
+    streamingRequest = { url: String(input), body: JSON.parse(String(init?.body)) };
+    return new Response('data: {"candidates":[{"content":{"parts":[{"text":"Hello."}]}}]}\n\n', {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }) as typeof fetch;
+  try {
+    await streamingService.streamReply({
+      apiKey: 'test-key',
+      model: 'gemini-test-model',
+      history: [
+        { role: 'model', text: 'Welcome.' },
+        { role: 'user', text: 'I am learning English.' },
+        { role: 'user', text: 'I am learning English.' },
+      ],
+      onSentence: () => undefined,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const capturedRequest = streamingRequest as { url: string; body: any } | null;
+  assert.equal(capturedRequest?.url, '/api/gemini/models/gemini-test-model:streamGenerateContent?alt=sse');
+  assert.deepEqual(
+    capturedRequest?.body.contents.map((turn: any) => turn.role),
+    ['user', 'model', 'user'],
+    'streaming contents must start with user and alternate roles',
+  );
 
   const gateway = new ResilientAIGateway({ geminiKeys: ['test-key'] });
   const parse = (gateway as any).parseSpeakingAIOutput.bind(gateway);

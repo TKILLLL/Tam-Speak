@@ -3,6 +3,7 @@
  * Uses the Gemini SSE endpoint and forwards complete sentences as soon as they
  * arrive, so the caller can start TTS before the response finishes.
  */
+import { normalizeGeminiContents } from './normalizeGeminiContents';
 export const GEMINI_VOICE_CONFIG = {
   model: 'gemini-2.0-flash',
   temperature: 0.6,
@@ -88,20 +89,23 @@ export class SentenceTTSQueue {
 export class GeminiStreamingService {
   async streamReply(params: {
     apiKey: string;
+    model?: string;
     history: Array<{ role: 'user' | 'model'; text: string }>;
     onSentence: (sentence: string) => void;
     signal?: AbortSignal;
   }): Promise<string> {
     if (!params.apiKey.trim()) throw new Error('Gemini API key is required.');
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VOICE_CONFIG.model}:streamGenerateContent?alt=sse`;
+    const model = params.model?.trim() || GEMINI_VOICE_CONFIG.model;
+    const endpoint = `/api/gemini/models/${model}:streamGenerateContent?alt=sse`;
+    const contents = normalizeGeminiContents(params.history.map((turn) => ({
+      role: turn.role,
+      content: turn.text,
+    })));
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': params.apiKey.trim() },
       body: JSON.stringify({
-        contents: params.history.map((turn) => ({
-          role: turn.role,
-          parts: [{ text: turn.text }],
-        })),
+        contents,
         systemInstruction: { parts: [{ text: GEMINI_VOICE_SYSTEM_INSTRUCTION }] },
         generationConfig: {
           temperature: GEMINI_VOICE_CONFIG.temperature,
