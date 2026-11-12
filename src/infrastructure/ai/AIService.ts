@@ -20,6 +20,7 @@ export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
 
 const MAX_MODEL_ATTEMPTS = 2;
 const MAX_AUTOMATIC_429_RETRIES = 1;
+const MAX_AUTOMATIC_503_RETRIES = 1;
 const MAX_RATE_LIMIT_BACKOFF_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
@@ -69,6 +70,11 @@ function parseRetryAfterMs(response: Response, body: string): number | null {
 function formatRateLimitMessage(waitMs: number): string {
   const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
   return `Gemini đang giới hạn tốc độ (HTTP 429). Hãy đợi khoảng ${waitSeconds} giây rồi thử lại.`;
+}
+
+function formatServiceUnavailableMessage(waitMs: number): string {
+  const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+  return `Gemini đang quá tải hoặc tạm thời không khả dụng (HTTP 503). Hãy đợi khoảng ${waitSeconds} giây rồi thử lại. Đây không phải lỗi API Key.`;
 }
 
 /**
@@ -152,6 +158,8 @@ export class AIService {
   private vocabHintsCache = new Map<string, GeneratedVocabHints>();
   private rateLimitUntil = 0;
   private consecutiveRateLimits = 0;
+  private serviceUnavailableUntil = 0;
+  private consecutive503s = 0;
 
   /**
    * Retrieves active Gemini API Key from the global resolver
@@ -196,6 +204,10 @@ export class AIService {
     if (remainingRateLimitMs > 0) {
       throw new Error(formatRateLimitMessage(remainingRateLimitMs));
     }
+    const remainingServiceUnavailableMs = this.serviceUnavailableUntil - Date.now();
+    if (remainingServiceUnavailableMs > 0) {
+      throw new Error(formatServiceUnavailableMessage(remainingServiceUnavailableMs));
+    }
 
     // Standardize contents with strict user-first multi-turn alternation (Case 1)
     const contents = normalizeGeminiContents(messages);
@@ -203,8 +215,9 @@ export class AIService {
     const errors: string[] = [];
     const overallDeadline = Date.now() + overallTimeoutMs;
     let automatic429Retries = 0;
+    let automatic503Retries = 0;
 
-    // Try at most two models for 404/503. A 429 or connectivity error is
+    // Try at most two models for 404. A 429, 503, or connectivity error is
     // handled on its own so the fallback chain cannot multiply failed requests.
     for (let i = 0; i < Math.min(GEMINI_MODELS_FALLBACK_CHAIN.length, MAX_MODEL_ATTEMPTS); i++) {
       const remainingTime = overallDeadline - Date.now();
@@ -291,8 +304,33 @@ export class AIService {
           throw rateLimitError;
         }
 
-        // Rotate only for statuses where another model can reasonably help.
-        if (response.status === 503 || response.status === 404) {
+        if (response.status === 503) {
+          const errBody = await response.text().catch(() => '');
+          const serverRetryAfterMs = parseRetryAfterMs(response, errBody);
+          const fallbackBackoffMs = Math.min(1_000 * (2 ** this.consecutive503s), MAX_RATE_LIMIT_BACKOFF_MS);
+          const retryAfterMs = serverRetryAfterMs ?? fallbackBackoffMs;
+          this.consecutive503s += 1;
+          this.serviceUnavailableUntil = Date.now() + retryAfterMs;
+
+          if (
+            automatic503Retries < MAX_AUTOMATIC_503_RETRIES &&
+            retryAfterMs <= 2_000 &&
+            Date.now() + retryAfterMs + 1_000 < overallDeadline
+          ) {
+            automatic503Retries += 1;
+            await sleep(retryAfterMs);
+            this.serviceUnavailableUntil = 0;
+            i -= 1;
+            continue;
+          }
+
+          const serviceUnavailableError = new Error(formatServiceUnavailableMessage(retryAfterMs));
+          (serviceUnavailableError as any).isNonRetryable = true;
+          throw serviceUnavailableError;
+        }
+
+        // A missing model can be fixed by trying the next model in the chain.
+        if (response.status === 404) {
           const errBody = await response.text().catch(() => '');
           console.warn(`[Gemini REST Failover] Model ${modelName} returned HTTP ${response.status}: ${errBody.slice(0, 100)}. Trying another model.`);
           errors.push(`${modelName} (HTTP ${response.status})`);
@@ -324,6 +362,8 @@ export class AIService {
         this.activeModelIndex = modelIndex;
         this.consecutiveRateLimits = 0;
         this.rateLimitUntil = 0;
+        this.consecutive503s = 0;
+        this.serviceUnavailableUntil = 0;
         useTamSpeakStore.getState().setActiveAIProvider(modelName);
         return text.trim();
       } catch (err: any) {
