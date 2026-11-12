@@ -18,6 +18,59 @@ export const GEMINI_MODELS_FALLBACK_CHAIN = GEMINI_CHAT_MODEL_PRIORITY;
 
 export type GeminiModelName = typeof GEMINI_MODELS_FALLBACK_CHAIN[number];
 
+const MAX_MODEL_ATTEMPTS = 2;
+const MAX_AUTOMATIC_429_RETRIES = 1;
+const MAX_RATE_LIMIT_BACKOFF_MS = 30_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(response: Response, body: string): number | null {
+  const retryAfterHeader = response.headers.get('Retry-After');
+  if (retryAfterHeader) {
+    const seconds = Number(retryAfterHeader);
+    if (Number.isFinite(seconds)) {
+      return Math.max(0, seconds * 1000);
+    }
+
+    const retryAt = Date.parse(retryAfterHeader);
+    if (Number.isFinite(retryAt)) {
+      return Math.max(0, retryAt - Date.now());
+    }
+  }
+
+  let retryDelay: unknown;
+  let errorMessage = body;
+  try {
+    const parsed = JSON.parse(body);
+    errorMessage = parsed?.error?.message || parsed?.message || body;
+    retryDelay = parsed?.error?.details?.find?.((detail: any) => detail?.retryDelay)?.retryDelay;
+  } catch {
+    // Gemini sometimes returns a plain-text error body.
+  }
+
+  if (typeof retryDelay === 'string') {
+    const match = retryDelay.match(/^(\d+(?:\.\d+)?)\s*(ms|s)$/i);
+    if (match) {
+      return Math.max(0, Number(match[1]) * (match[2]!.toLowerCase() === 's' ? 1000 : 1));
+    }
+  }
+
+  const messageMatch = errorMessage.match(/retry\s+in\s+(\d+(?:\.\d+)?)\s*(ms|seconds?|s)/i);
+  if (messageMatch) {
+    const unit = messageMatch[2]!.toLowerCase();
+    return Math.max(0, Number(messageMatch[1]) * (unit === 'ms' ? 1 : 1000));
+  }
+
+  return null;
+}
+
+function formatRateLimitMessage(waitMs: number): string {
+  const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+  return `Gemini đang giới hạn tốc độ (HTTP 429). Hãy đợi khoảng ${waitSeconds} giây rồi thử lại.`;
+}
+
 /**
  * Global single source of truth for resolving active Google Gemini API Key:
  * 1. Ephemeral In-Memory Personal Key (RAM only)
@@ -97,6 +150,8 @@ export interface PlacementQuestion {
 export class AIService {
   private activeModelIndex = 0;
   private vocabHintsCache = new Map<string, GeneratedVocabHints>();
+  private rateLimitUntil = 0;
+  private consecutiveRateLimits = 0;
 
   /**
    * Retrieves active Gemini API Key from the global resolver
@@ -110,8 +165,9 @@ export class AIService {
   }
 
   /**
-   * Low-level resilient REST caller with automatic model fallback on 429, 503, 404
-   * Configurable timeout and token limits (default: 800 tokens, 15s timeout)
+   * Low-level Gemini REST caller. Model fallback is reserved for model/service errors;
+   * rate limits and network timeouts must not fan out into more requests.
+   * Configurable timeout and output-token limits.
    */
   public async generateContent(params: {
     systemPrompt: string;
@@ -120,6 +176,7 @@ export class AIService {
     jsonMode?: boolean;
     maxOutputTokens?: number;
     timeoutMs?: number;
+    overallTimeoutMs?: number;
   }): Promise<string> {
     const {
       systemPrompt,
@@ -128,22 +185,28 @@ export class AIService {
       jsonMode = false,
       maxOutputTokens = 1200,
       timeoutMs = 8_000,
+      overallTimeoutMs = 9_000,
     } = params;
     const apiKey = this.getActiveApiKey();
     if (!apiKey) {
       throw new Error('Chưa có Gemini API Key. Hãy thêm key cá nhân trong Cài đặt → AI & Voice Settings.');
     }
 
+    const remainingRateLimitMs = this.rateLimitUntil - Date.now();
+    if (remainingRateLimitMs > 0) {
+      throw new Error(formatRateLimitMessage(remainingRateLimitMs));
+    }
+
     // Standardize contents with strict user-first multi-turn alternation (Case 1)
     const contents = normalizeGeminiContents(messages);
 
     const errors: string[] = [];
-    // Keep interactive turns responsive. A healthy primary model normally
-    // answers within this window; fallback models share the same deadline.
-    const overallDeadline = Date.now() + 9_000;
+    const overallDeadline = Date.now() + overallTimeoutMs;
+    let automatic429Retries = 0;
 
-    // Loop over fallback chain starting from activeModelIndex
-    for (let i = 0; i < GEMINI_MODELS_FALLBACK_CHAIN.length; i++) {
+    // Try at most two models for 404/503. A 429 or connectivity error is
+    // handled on its own so the fallback chain cannot multiply failed requests.
+    for (let i = 0; i < Math.min(GEMINI_MODELS_FALLBACK_CHAIN.length, MAX_MODEL_ATTEMPTS); i++) {
       const remainingTime = overallDeadline - Date.now();
       if (remainingTime < 1000) {
         break; // Approaching deadline, prevent blocking user
@@ -200,11 +263,39 @@ export class AIService {
           throw fatalErr;
         }
 
-        // If rate limit (429), temporary service overload (503), or model unavailable (404): rotate to next model
-        if (response.status === 429 || response.status === 503 || response.status === 404) {
+        if (response.status === 429) {
           const errBody = await response.text().catch(() => '');
-          console.warn(`[Gemini REST Failover] Model ${modelName} returned HTTP ${response.status}: ${errBody.slice(0, 100)}. Switching to next model...`);
-          errors.push(`${modelName} (${response.status})`);
+          const serverRetryAfterMs = parseRetryAfterMs(response, errBody);
+          const fallbackBackoffMs = Math.min(
+            1_000 * (2 ** this.consecutiveRateLimits),
+            MAX_RATE_LIMIT_BACKOFF_MS,
+          );
+          const retryAfterMs = serverRetryAfterMs ?? fallbackBackoffMs;
+          this.consecutiveRateLimits += 1;
+          this.rateLimitUntil = Date.now() + retryAfterMs;
+
+          if (
+            automatic429Retries < MAX_AUTOMATIC_429_RETRIES &&
+            retryAfterMs <= 2_000 &&
+            Date.now() + retryAfterMs + 1_000 < overallDeadline
+          ) {
+            automatic429Retries += 1;
+            await sleep(retryAfterMs);
+            this.rateLimitUntil = 0;
+            i -= 1;
+            continue;
+          }
+
+          const rateLimitError = new Error(formatRateLimitMessage(retryAfterMs));
+          (rateLimitError as any).isNonRetryable = true;
+          throw rateLimitError;
+        }
+
+        // Rotate only for statuses where another model can reasonably help.
+        if (response.status === 503 || response.status === 404) {
+          const errBody = await response.text().catch(() => '');
+          console.warn(`[Gemini REST Failover] Model ${modelName} returned HTTP ${response.status}: ${errBody.slice(0, 100)}. Trying another model.`);
+          errors.push(`${modelName} (HTTP ${response.status})`);
           this.activeModelIndex = (modelIndex + 1) % GEMINI_MODELS_FALLBACK_CHAIN.length;
           useTamSpeakStore.getState().setActiveAIProvider(GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex]!);
           continue;
@@ -212,7 +303,9 @@ export class AIService {
 
         if (!response.ok) {
           const errBody = await response.text().catch(() => '');
-          throw new Error(`HTTP ${response.status} ${response.statusText}: ${errBody.slice(0, 200)}`);
+          const apiError = new Error(`Gemini API trả về HTTP ${response.status}: ${errBody.slice(0, 200)}`);
+          (apiError as any).isNonRetryable = true;
+          throw apiError;
         }
 
         const data = await response.json();
@@ -229,18 +322,29 @@ export class AIService {
 
         // Successfully resolved! Update badge if shifted
         this.activeModelIndex = modelIndex;
+        this.consecutiveRateLimits = 0;
+        this.rateLimitUntil = 0;
         useTamSpeakStore.getState().setActiveAIProvider(modelName);
         return text.trim();
       } catch (err: any) {
         clearTimeout(timeoutTimer);
-        // Do not retry other models if fatal auth or bad request error occurred
-        if (err?.isFatalAuthOrClientError) {
+        // A network timeout, 429, or client/configuration error is not fixed by
+        // sending the same audio to several other model endpoints.
+        if (err?.isFatalAuthOrClientError || err?.isNonRetryable) {
           throw err;
         }
 
-        const errMsg = err?.name === 'AbortError' ? `Timeout (${Math.round(timeoutMs / 1000)}s)` : (err as Error).message;
+        if (err?.name === 'AbortError') {
+          throw new Error(`Gemini chưa phản hồi trong ${Math.ceil(perAttemptTimeout / 1000)} giây. Bạn có thể thử lại sau.`);
+        }
+
+        if (err instanceof TypeError) {
+          throw new Error(`Không kết nối được tới Gemini: ${(err as Error).message}`);
+        }
+
+        const errMsg = (err as Error).message;
         errors.push(`${modelName}: ${errMsg}`);
-        // If not the last model in chain, try next model
+        // Fallback only for unexpected model-specific errors.
         this.activeModelIndex = (modelIndex + 1) % GEMINI_MODELS_FALLBACK_CHAIN.length;
         useTamSpeakStore.getState().setActiveAIProvider(GEMINI_MODELS_FALLBACK_CHAIN[this.activeModelIndex]!);
       }
@@ -368,8 +472,8 @@ YOUR TASKS:
 2. "nextQuestion": If nextPlannedQuestion is provided, transition seamlessly into it. If not, formulate an engaging natural follow-up question directly related to what the candidate just explained.
 3. "suggestedUpgrade": Provide an upgraded Band 8.5+ native phrasing of their core idea.
 4. "inferredIntendedSentence": Only correct a clearly supported word or phrase. Never reconstruct an entire sentence from silence, noise, or a few uncertain words; return null in that case.
-5. "mistakes": Identify any actual grammar or phonetic pronunciation confusions in the candidate's answer (strictly ignore Vietnamese proper nouns).
-6. "speechAnalysis": Brief 1-sentence note on fluency or grammatical accuracy.
+5. "mistakes": Identify at most 3 actual grammar or phonetic pronunciation confusions (strictly ignore Vietnamese proper nouns).
+6. "speechAnalysis": Brief notes on fluency and grammatical accuracy.
 
 Return ONLY valid JSON:
 {
@@ -411,8 +515,9 @@ Listen to the attached audio, transcribe it, then generate JSON evaluation and t
       messages: [userMessage],
       temperature: 0.6,
       jsonMode: true,
-      maxOutputTokens: 1200,
-      timeoutMs: 8_500,
+      maxOutputTokens: 700,
+      timeoutMs: 24_000,
+      overallTimeoutMs: 25_000,
     });
 
     const parsed = this.cleanAndParseJson<ExaminerTurnResult>(raw, {
